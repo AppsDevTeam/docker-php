@@ -1,1 +1,3 @@
-# docker-php71
+Docker PHP CLI image including following extensions:
+
+- ssh2
