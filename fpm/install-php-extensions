@@ -1,0 +1,23 @@
+#!/bin/sh
+# Wrapper nad mlocati/install-php-extensions (skutecny skript je v /usr/local/lib).
+#
+# Image po sobe odstranuje $PHPIZE_DEPS (gcc, make, hlavicky - viz Dockerfile), ale
+# install-php-extensions s nimi pocita jako s predinstalovanymi a bez nich spadne na
+# "gcc: not found". Wrapper je proto pred kompilaci doinstaluje a po ni zase odstrani,
+# takze potomek dal pise jen `RUN install-php-extensions gd` a gcc v image nezustane.
+set -e
+
+apt-get update
+# libc-dev je v $PHPIZE_DEPS virtualni balik - apt ho nainstaluje (jediny poskytovatel
+# libc6-dev), ale pri purge ho musime vyjmenovat skutecnym jmenem
+# shellcheck disable=SC2086
+apt-get install -y --no-install-recommends $PHPIZE_DEPS
+
+status=0
+/usr/local/lib/install-php-extensions "$@" || status=$?
+
+# shellcheck disable=SC2086
+apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev
+rm -rf /var/lib/apt/lists/*
+
+exit $status

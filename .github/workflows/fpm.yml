@@ -1,0 +1,51 @@
+# Build a push appsdevteam/php:<verze>-fpm na Docker Hub (amd64 + arm64).
+#
+# Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile) -
+# tag zustava stejny, meni se jen verze balicku. Bump PHP = zmenit `php` v matrixu.
+#
+# Potrebuje secrets DOCKERHUB_USERNAME a DOCKERHUB_TOKEN (access token s pravem push
+# do organizace appsdevteam).
+name: fpm
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'fpm/**'
+      - '.github/workflows/fpm.yml'
+  schedule:
+    # pondeli 04:00 UTC
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: 8.4.26
+            minor: '8.4'
+          - php: 8.5.11
+            minor: '8.5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: fpm
+          platforms: linux/amd64,linux/arm64
+          build-args: PHP_VERSION=${{ matrix.php }}
+          # bez cache: tydenni rebuild musi znovu stahnout apt balicky i base image
+          no-cache: true
+          pull: true
+          push: true
+          tags: |
+            appsdevteam/php:${{ matrix.php }}-fpm
+            appsdevteam/php:${{ matrix.minor }}-fpm

@@ -1,3 +1,45 @@
+# docker-php
+
+## appsdevteam/php:&lt;verze&gt;-fpm
+
+Spolecny zaklad php-fpm pro webove projekty. Tagy `8.4-fpm` / `8.5-fpm` a pripnute
+`8.4.26-fpm` / `8.5.11-fpm` (doporuceno - reprodukovatelny build), platformy
+`linux/amd64` a `linux/arm64`.
+
+Obsahuje:
+
+- composer (instalator overeny proti podpisu), git, unzip
+- `sendmail` (adt/sendmail v3.0, klic `--key` nastavuje projekt), `eoh`, `cachetool`
+- rozsireni `intl`, `opcache`, `pdo_mysql`, `sockets`, `sodium`, `zip`
+- `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
+  (`monitoring-agent_phpfpm` v server-management-scripts)
+- bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
+  opravami Debianu (rebuild kazdy tyden)
+
+Pouziti v projektu:
+
+```dockerfile
+FROM appsdevteam/php:8.5.11-fpm
+RUN install-php-extensions gd imagick
+```
+
+`install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
+odstrani, `apt-get purge $PHPIZE_DEPS` uz projekt delat nemusi.
+
+Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
+projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
+drzi projekt. Pri prekrytem `conf.d` je potreba rozsireni zapnout v ini projektu
+(`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
+opcache zakompilovana natvrdo.
+
+Build a push dela GitHub Actions (`.github/workflows/fpm.yml`). Lokalne:
+
+```sh
+docker build --build-arg PHP_VERSION=8.5.11 -t appsdevteam/php:8.5.11-fpm fpm
+```
+
+## appsdevteam/php:7.1, 8.4 (CLI)
+
 Docker PHP CLI image including following libraries:
 
 - composer
