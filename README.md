@@ -32,10 +32,17 @@ drzi projekt. Pri prekrytem `conf.d` je potreba rozsireni zapnout v ini projektu
 (`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
 opcache zakompilovana natvrdo.
 
-Build a push dela GitHub Actions (`.github/workflows/fpm.yml`). Lokalne:
+Build a push dela GitHub Actions (`.github/workflows/fpm.yml`). `docker build` sestavi
+jen image pro aktualni architekturu stroje - pro skutecny multiplatformni build
+(`linux/amd64` + `linux/arm64`, jako dela CI) je potreba `docker buildx` s `--platform`
+a vysledek rovnou pushnout (multi-arch manifest nejde ulozit lokalne, jen pres registry).
+Build pro amd64 na Apple Silicon bezi pres QEMU emulaci a je o dost pomalejsi nez
+nativni build.
 
 ```sh
-docker build --build-arg PHP_VERSION=8.5.11 -t appsdevteam/php:8.5.11-fpm fpm
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --build-arg PHP_VERSION=8.5.12 --push \
+  -t appsdevteam/php:8.5.12-fpm -t appsdevteam/php:8.5-fpm fpm
 ```
 
 ## appsdevteam/php:7.1, 8.4 (CLI)
