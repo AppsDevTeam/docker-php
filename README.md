@@ -3,7 +3,7 @@
 ## appsdevteam/php:&lt;verze&gt;-fpm
 
 Spolecny zaklad php-fpm pro webove projekty. Tagy `8.4-fpm` / `8.5-fpm` a pripnute
-`8.4.26-fpm` / `8.5.11-fpm` (doporuceno - reprodukovatelny build), platformy
+`8.4.27-fpm` / `8.5.12-fpm` (doporuceno - reprodukovatelny build), platformy
 `linux/amd64` a `linux/arm64`.
 
 Obsahuje:
@@ -19,7 +19,7 @@ Obsahuje:
 Pouziti v projektu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.11-fpm
+FROM appsdevteam/php:8.5.12-fpm
 RUN install-php-extensions gd imagick
 ```
 

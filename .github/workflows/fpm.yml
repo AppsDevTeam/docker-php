@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - php: 8.4.26
+          - php: 8.4.27
             minor: '8.4'
           - php: 8.5.11
             minor: '8.5'
