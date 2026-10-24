@@ -1,16 +1,19 @@
 # docker-php
 
-## appsdevteam/php:&lt;verze&gt;-fpm
+## appsdevteam/php:&lt;verze&gt;-fpm a -cli
 
-Spolecny zaklad php-fpm pro webove projekty. Tagy `8.4-fpm` / `8.5-fpm` a pripnute
-`8.4.27-2-fpm` / `8.5.12-2-fpm` (doporuceno - reprodukovatelny build), platformy
-`linux/amd64` a `linux/arm64`.
+Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Dve
+varianty se stejnym obsahem:
 
-Pripnuty tag je `<verze PHP>-<revize>-fpm`. Revize (`REVISION` ve workflow) se zvysuje pri
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm` a pripnute `8.4.27-3-fpm` /
+  `8.5.12-3-fpm`.
+- `-cli` - consumery a dalsi procesy bez webu (supervisor apod.), bez php-fpm. Tagy
+  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-3-cli` / `8.5.12-3-cli`.
+
+Doporuceny je pripnuty tag (reprodukovatelny build): `<verze PHP>-<revize>-<varianta>`. Revize (`REVISION` ve workflow) se zvysuje pri
 zmene image, ktera muze rozbit projekt (odebrany nastroj, jine chovani) - tydenni rebuild
 s bezpecnostnimi opravami ji nemeni. Starsi revize se uz nesestavuji, zustanou zmrazene,
-dokud projekt neprejde na novou. Revize 1 jsou tagy bez cisla (`8.4.27-fpm`, ty jeste
-obsahovaly adt/sendmail), revize 2 nahradila adt/sendmail za dma.
+dokud projekt neprejde na novou.
 
 Obsahuje:
 
@@ -19,6 +22,7 @@ Obsahuje:
 - `dma` jako `sendmail` - `mail()` doruci primo na MX prijemce, bez API a klice. Jen na
   chybove e-maily (adt/error-logger), bezna posta projektu patri do `adt/mailer`.
   Projekt `sendmail_path` nenastavuje (vychozi `/usr/sbin/sendmail -t -i` je dma)
+  Spool je v `/tmp`, kontejner proto potrebuje zapisovatelny `/tmp` (u `read_only` tmpfs).
 - rozsireni `intl`, `opcache`, `pdo_mysql`, `sockets`, `sodium`, `zip`
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
@@ -28,8 +32,16 @@ Obsahuje:
 Pouziti v projektu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-2-fpm
+FROM appsdevteam/php:8.5.12-3-fpm
 RUN install-php-extensions gd imagick
+```
+
+Web i consumery ze stejneho Dockerfile projektu - varianta jako build arg, compose ji
+u consumeru nastavi na `cli`:
+
+```dockerfile
+ARG VARIANT=fpm
+FROM appsdevteam/php:8.5.12-3-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -41,7 +53,7 @@ drzi projekt. Pri prekrytem `conf.d` je potreba rozsireni zapnout v ini projektu
 (`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
 opcache zakompilovana natvrdo.
 
-Build a push dela GitHub Actions (`.github/workflows/fpm.yml`). `docker build` sestavi
+Build a push dela GitHub Actions (`.github/workflows/base.yml`). `docker build` sestavi
 jen image pro aktualni architekturu stroje - pro skutecny multiplatformni build
 (`linux/amd64` + `linux/arm64`, jako dela CI) je potreba `docker buildx` s `--platform`
 a vysledek rovnou pushnout (multi-arch manifest nejde ulozit lokalne, jen pres registry).
@@ -50,8 +62,8 @@ nativni build.
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg PHP_VERSION=8.5.12 --push \
-  -t appsdevteam/php:8.5.12-2-fpm -t appsdevteam/php:8.5-fpm fpm
+  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --push \
+  -t appsdevteam/php:8.5.12-3-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
 ## appsdevteam/php:7.1, 8.4 (CLI)

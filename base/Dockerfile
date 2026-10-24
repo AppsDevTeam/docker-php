@@ -1,16 +1,19 @@
-# Spolecny zaklad php-fpm pro webove projekty (appsdevteam/php:<verze>-fpm). Drive si kazdy
-# projekt skladal stejny Dockerfile sam (vychozi byl sandbox) a bezpecnostni opravy se musely
-# rucne zanaset do kazdeho repozitare zvlast.
+# Spolecny zaklad PHP pro webove projekty, aby se bezpecnostni opravy nemusely zanaset do
+# kazdeho repozitare zvlast. Dve varianty ze stejneho Dockerfile:
+# - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm)
+# - appsdevteam/php:<verze>-<revize>-cli - consumery a dalsi procesy bez webu (supervisor
+#   apod.), bez php-fpm
 #
-# Verze PHP se predava z workflow (.github/workflows/fpm.yml), kde je pripnuta na patch -
-# stejne jako drive v projektech, kvuli reprodukovatelnosti. Lokalne:
-#   docker build --build-arg PHP_VERSION=8.5.12 fpm
+# Verze PHP a varianta se predavaji z workflow (.github/workflows/base.yml), verze je
+# pripnuta na patch kvuli reprodukovatelnosti. Lokalne:
+#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli base
 #
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
 # image zapsal, v kontejneru stejne zmizi. Pool (vc. pm.status_path) a ini si dal drzi projekt.
 ARG PHP_VERSION
-FROM php:${PHP_VERSION}-fpm
+ARG VARIANT=fpm
+FROM php:${PHP_VERSION}-${VARIANT}
 
 # Runtime nastroje: git kvuli composeru (VCS repozitare v composer.json), unzip pro archivy.
 # dma (/usr/sbin/sendmail) doruci e-mail z mail() primo na MX prijemce, bez API a klice. Je jen
@@ -19,6 +22,14 @@ FROM php:${PHP_VERSION}-fpm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 	git unzip dma \
 && rm -rf /var/lib/apt/lists/*
+
+# Projekty spousti PHP s read_only, no-new-privileges a neroot uzivatelem. Setgid mail se pak
+# neuplatni, takze dma musi precist config bez nej (nic tajneho v nem neni, prihlasovaci udaje
+# jsou v auth.conf) a spool musi lezet na zapisovatelnem /tmp (tmpfs). Fronta nepreziva
+# restart kontejneru.
+RUN sed -i 's|^#\?SPOOLDIR.*|SPOOLDIR /tmp|' /etc/dma/dma.conf \
+&& grep -qx 'SPOOLDIR /tmp' /etc/dma/dma.conf \
+&& chmod 0644 /etc/dma/dma.conf
 
 # Composer installer se overuje proti oficialnimu podpisu (obrana proti MITM / podvrzeni installeru)
 RUN curl --fail -sSL https://getcomposer.org/installer -o composer-setup.php \
@@ -63,8 +74,5 @@ RUN apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
 # rebuilduje i tydne. MUSI byt az za install-php-extensions, jinak by se netykalo knihoven
 # rozsireni. `upgrade` misto `dist-upgrade` - nikdy nepridava nove balicky, takze nezvrati
 # purge vyse.
-#
-# V projektech tenhle krok padal na GitLab runneru #33 (hodiny pozadu, apt odmita podpis
-# debian-security "z budoucnosti") - image se ale buildi v GitHub Actions, kde to neplati.
 RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*

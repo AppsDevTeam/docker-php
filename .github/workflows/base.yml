@@ -1,4 +1,4 @@
-# Build a push appsdevteam/php:<verze>-fpm na Docker Hub (amd64 + arm64).
+# Build a push appsdevteam/php:<verze>-<revize>-fpm a -cli na Docker Hub (amd64 + arm64).
 #
 # Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile) -
 # tag zustava stejny, meni se jen verze balicku. Bump PHP = zmenit `php` v matrixu.
@@ -7,22 +7,21 @@
 #
 # Potrebuje secrets DOCKERHUB_USERNAME a DOCKERHUB_TOKEN (access token s pravem push
 # do organizace appsdevteam).
-name: fpm
+name: base
 
 on:
   push:
     branches: [master]
     paths:
-      - 'fpm/**'
-      - '.github/workflows/fpm.yml'
+      - 'base/**'
+      - '.github/workflows/base.yml'
   schedule:
     # pondeli 04:00 UTC
     - cron: '0 4 * * 1'
   workflow_dispatch:
 
 env:
-  # 2: adt/sendmail nahrazen dma (mail() primo na MX, bez mailapi)
-  REVISION: 2
+  REVISION: 3
 
 jobs:
   build:
@@ -30,10 +29,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        php: ['8.4.27', '8.5.12']
+        variant: [fpm, cli]
         include:
-          - php: 8.4.27
+          - php: '8.4.27'
             minor: '8.4'
-          - php: 8.5.12
+          - php: '8.5.12'
             minor: '8.5'
     steps:
       - uses: actions/checkout@v4
@@ -45,13 +46,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: fpm
+          context: base
           platforms: linux/amd64,linux/arm64
-          build-args: PHP_VERSION=${{ matrix.php }}
+          build-args: |
+            PHP_VERSION=${{ matrix.php }}
+            VARIANT=${{ matrix.variant }}
           # bez cache: tydenni rebuild musi znovu stahnout apt balicky i base image
           no-cache: true
           pull: true
           push: true
           tags: |
-            appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-fpm
-            appsdevteam/php:${{ matrix.minor }}-fpm
+            appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-${{ matrix.variant }}
+            appsdevteam/php:${{ matrix.minor }}-${{ matrix.variant }}
