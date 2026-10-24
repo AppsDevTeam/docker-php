@@ -2,6 +2,8 @@
 #
 # Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile) -
 # tag zustava stejny, meni se jen verze balicku. Bump PHP = zmenit `php` v matrixu.
+# Zmena image, ktera muze rozbit projekt (odebrany nastroj, jine chovani), = zvysit REVISION,
+# aby ji tydenni rebuild nepodstrcil projektum pripnutym na predchozi revizi.
 #
 # Potrebuje secrets DOCKERHUB_USERNAME a DOCKERHUB_TOKEN (access token s pravem push
 # do organizace appsdevteam).
@@ -18,6 +20,10 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch:
 
+env:
+  # 2: adt/sendmail nahrazen dma (mail() primo na MX, bez mailapi)
+  REVISION: 2
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,7 +33,7 @@ jobs:
         include:
           - php: 8.4.27
             minor: '8.4'
-          - php: 8.5.11
+          - php: 8.5.12
             minor: '8.5'
     steps:
       - uses: actions/checkout@v4
@@ -47,5 +53,5 @@ jobs:
           pull: true
           push: true
           tags: |
-            appsdevteam/php:${{ matrix.php }}-fpm
+            appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-fpm
             appsdevteam/php:${{ matrix.minor }}-fpm

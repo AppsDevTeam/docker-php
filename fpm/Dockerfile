@@ -4,7 +4,7 @@
 #
 # Verze PHP se predava z workflow (.github/workflows/fpm.yml), kde je pripnuta na patch -
 # stejne jako drive v projektech, kvuli reprodukovatelnosti. Lokalne:
-#   docker build --build-arg PHP_VERSION=8.5.11 fpm
+#   docker build --build-arg PHP_VERSION=8.5.12 fpm
 #
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
@@ -13,8 +13,11 @@ ARG PHP_VERSION
 FROM php:${PHP_VERSION}-fpm
 
 # Runtime nastroje: git kvuli composeru (VCS repozitare v composer.json), unzip pro archivy.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	git unzip \
+# dma (/usr/sbin/sendmail) doruci e-mail z mail() primo na MX prijemce, bez API a klice. Je jen
+# na systemovou postu - chyby z adt/error-logger na error@mail.appsdevteam.com. Bezna posta
+# projektu jde pres adt/mailer (mailapi), na cizi schranky by prima posta neprosla antispamem.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+	git unzip dma \
 && rm -rf /var/lib/apt/lists/*
 
 # Composer installer se overuje proti oficialnimu podpisu (obrana proti MITM / podvrzeni installeru)
@@ -24,10 +27,6 @@ RUN curl --fail -sSL https://getcomposer.org/installer -o composer-setup.php \
 && [ "$EXPECTED" = "$ACTUAL" ] \
 && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
 && rm composer-setup.php
-
-# v3.0 spousti workera ze sebe sama a nema zapeceny klic - `--key` v sendmail_path je
-# povinny, nastavuje ho projekt v conf.d. Image je verejny na Docker Hubu: zadne klice sem.
-RUN curl --fail -sOL https://git.appsdevteam.com/adt/sendmail/raw/v3.0/bin/sendmail && chmod +x sendmail && mv sendmail /usr/local/bin/sendmail
 
 # Helper pro otevirani souboru v editoru na hostovi (lokalni vyvoj). Netcat, ktery potrebuje,
 # si doinstaluje projekt jen pro local (ARG DEV) - do produkcniho image nepatri.
