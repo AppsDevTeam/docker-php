@@ -47,6 +47,15 @@ FROM appsdevteam/php:8.5.12-3-${VARIANT}
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
 odstrani, `apt-get purge $PHPIZE_DEPS` uz projekt delat nemusi.
 
+Rozsireni jde take odvodit z `ext-*` zavislosti v composer.json projektu, aby je
+programator nemusel vyjmenovavat na dvou mistech:
+
+```dockerfile
+FROM appsdevteam/php:8.5.12-3-fpm
+COPY composer.json ./
+RUN install-composer-extensions
+```
+
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
 projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
 drzi projekt. Pri prekrytem `conf.d` je potreba rozsireni zapnout v ini projektu

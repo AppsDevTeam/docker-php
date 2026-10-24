@@ -1,0 +1,28 @@
+#!/bin/sh
+# Instaluje PHP rozsireni podle `ext-*` zavislosti v composer.json, aby je projekt
+# nemusel rucne vyjmenovavat znovu v Dockerfile - composer.json uz je kvuli Composeru
+# (platform requirements) deklaruje.
+#
+# Pouziti:
+#   COPY composer.json ./
+#   RUN install-composer-extensions
+set -e
+
+COMPOSER_JSON="${1:-composer.json}"
+
+EXTENSIONS=$(php -r '
+$data = json_decode(file_get_contents($argv[1]), true);
+foreach (array_keys($data["require"] ?? []) as $package) {
+    if (str_starts_with($package, "ext-")) {
+        echo substr($package, 4), " ";
+    }
+}
+' "$COMPOSER_JSON")
+
+if [ -z "$EXTENSIONS" ]; then
+	echo "Zadne ext-* zavislosti v $COMPOSER_JSON, nic k instalaci."
+	exit 0
+fi
+
+# shellcheck disable=SC2086
+install-php-extensions $EXTENSIONS

@@ -59,6 +59,10 @@ RUN curl --fail -sSL https://github.com/mlocati/docker-php-extension-installer/r
 # spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
 COPY install-php-extensions /usr/local/bin/install-php-extensions
 
+# Alternativa k rucnimu vyjmenovani rozsireni: precte ext-* z composer.json projektu
+# a nainstaluje je - viz komentar ve skriptu.
+COPY install-composer-extensions /usr/local/bin/install-composer-extensions
+
 # $PHPIZE_DEPS nechava base image nainstalovane pro potomky, kteri kompiluji extensions.
 # Wrapper si je v potomkovi doinstaluje sam, takze je tu odstranime: jinak v image zbyva
 # gcc/make (pouzitelne po pripadnem pruniku) a hlavicky linux-libc-dev, ktere generuji CVE
