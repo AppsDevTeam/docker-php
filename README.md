@@ -59,6 +59,13 @@ COPY composer.json ./
 RUN install-composer-extensions composer.json
 ```
 
+Bez prepinace se cte jen `require` (produkcni image). `--dev` prida i `require-dev`,
+obdobne jako `composer install` vs. `composer install --no-dev`:
+
+```dockerfile
+RUN install-composer-extensions --dev composer.json
+```
+
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
 projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
 drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo

@@ -7,28 +7,39 @@
 # proto se musi vzdy doplnit pres vlastni COPY/COPY --from a cesta se nedomysli - je to
 # povinny parametr.
 #
+# Bez --dev se cte jen `require` (produkcni image), s --dev i `require-dev` - obdoba
+# `composer install --no-dev` vs. `composer install`.
+#
 # Pouziti:
-#   COPY --from=project composer.json ./
-#   RUN install-composer-extensions composer.json
+#   COPY composer.json ./
+#   RUN install-composer-extensions [--dev] composer.json
 set -e
 
+SECTIONS="require"
+if [ "$1" = "--dev" ]; then
+	SECTIONS="require require-dev"
+	shift
+fi
+
 if [ -z "$1" ]; then
-	echo "Pouziti: install-composer-extensions <cesta-k-composer.json>" >&2
+	echo "Pouziti: install-composer-extensions [--dev] <cesta-k-composer.json>" >&2
 	exit 1
 fi
 COMPOSER_JSON="$1"
 
 EXTENSIONS=$(php -r '
 $data = json_decode(file_get_contents($argv[1]), true);
-foreach (array_keys($data["require"] ?? []) as $package) {
-    if (str_starts_with($package, "ext-")) {
-        echo substr($package, 4), " ";
+foreach (array_slice($argv, 2) as $section) {
+    foreach (array_keys($data[$section] ?? []) as $package) {
+        if (str_starts_with($package, "ext-")) {
+            echo substr($package, 4), " ";
+        }
     }
 }
-' "$COMPOSER_JSON")
+' "$COMPOSER_JSON" $SECTIONS)
 
 if [ -z "$EXTENSIONS" ]; then
-	echo "Zadne ext-* zavislosti v $COMPOSER_JSON, nic k instalaci."
+	echo "Zadne ext-* zavislosti v $COMPOSER_JSON ($SECTIONS), nic k instalaci."
 	exit 0
 fi
 
