@@ -53,7 +53,7 @@ programator nemusel vyjmenovavat na dvou mistech:
 ```dockerfile
 FROM appsdevteam/php:8.5.12-3-fpm
 COPY composer.json ./
-RUN install-composer-extensions
+RUN install-composer-extensions composer.json
 ```
 
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -

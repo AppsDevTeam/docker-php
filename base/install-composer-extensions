@@ -3,12 +3,20 @@
 # nemusel rucne vyjmenovavat znovu v Dockerfile - composer.json uz je kvuli Composeru
 # (platform requirements) deklaruje.
 #
+# composer.json je mimo build context (zpravidla samostatny adresar jen pro Dockerfile),
+# proto se musi vzdy doplnit pres vlastni COPY/COPY --from a cesta se nedomysli - je to
+# povinny parametr.
+#
 # Pouziti:
-#   COPY composer.json ./
-#   RUN install-composer-extensions
+#   COPY --from=project composer.json ./
+#   RUN install-composer-extensions composer.json
 set -e
 
-COMPOSER_JSON="${1:-composer.json}"
+if [ -z "$1" ]; then
+	echo "Pouziti: install-composer-extensions <cesta-k-composer.json>" >&2
+	exit 1
+fi
+COMPOSER_JSON="$1"
 
 EXTENSIONS=$(php -r '
 $data = json_decode(file_get_contents($argv[1]), true);
