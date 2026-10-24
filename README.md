@@ -24,6 +24,9 @@ Obsahuje:
   Projekt `sendmail_path` nenastavuje (vychozi `/usr/sbin/sendmail -t -i` je dma)
   Spool je v `/tmp`, kontejner proto potrebuje zapisovatelny `/tmp` (u `read_only` tmpfs).
 - rozsireni `intl`, `opcache`, `pdo_mysql`, `sockets`, `sodium`, `zip`
+- `/usr/local/etc/php/php.ini` s vychozimi hodnotami: `opcache.interned_strings_buffer=32`
+  a `opcache.memory_consumption=256` (PHP ma 8 a 128 MB, velkym aplikacim nestaci).
+  Pamet opcache se zabira az pri zaplnovani, malym projektum vyssi limit nic nestoji.
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
@@ -58,8 +61,9 @@ RUN install-composer-extensions composer.json
 
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
 projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
-drzi projekt. Pri prekrytem `conf.d` je potreba rozsireni zapnout v ini projektu
-(`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
+drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo
+mount) - projekt je muze ve svem `conf.d` prepsat. Pri prekrytem `conf.d` je potreba
+rozsireni zapnout v ini projektu (`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
 opcache zakompilovana natvrdo.
 
 Build a push dela GitHub Actions (`.github/workflows/base.yml`). `docker build` sestavi

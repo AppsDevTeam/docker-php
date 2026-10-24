@@ -11,6 +11,8 @@
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
 # image zapsal, v kontejneru stejne zmizi. Pool (vc. pm.status_path) a ini si dal drzi projekt.
+# Vychozi ini hodnoty image jdou do /usr/local/etc/php/php.ini (viz php.ini vedle) - ten
+# mount neprekryva a projekt je muze ve svem conf.d prepsat.
 ARG PHP_VERSION
 ARG VARIANT=fpm
 FROM php:${PHP_VERSION}-${VARIANT}
@@ -45,6 +47,9 @@ RUN curl --fail -sOL https://git.appsdevteam.com/adt/docker-utils/raw/v1.0/bin/e
 
 # Reset opcache PHP-FPM po deployi (`cachetool opcache:reset` v makefile projektu).
 RUN curl --fail -sOL https://gordalina.github.io/cachetool/downloads/cachetool-9.2.1.phar && chmod +x cachetool-9.2.1.phar && mv cachetool-9.2.1.phar /usr/local/bin/cachetool
+
+# Vychozi ini hodnoty (velikosti bufferu opcache) - viz komentar v souboru.
+COPY php.ini /usr/local/etc/php/php.ini
 
 # Stav opcache pro monitoring (monitoring-agent_phpfpm v server-management-scripts ho vola
 # pres FastCGI :9000). Mimo document root - nginx ho neserviruje.
