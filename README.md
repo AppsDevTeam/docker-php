@@ -5,10 +5,10 @@
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Dve
 varianty se stejnym obsahem:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm` a pripnute `8.4.27-3-fpm` /
-  `8.5.12-3-fpm`.
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm` a pripnute `8.4.27-4-fpm` /
+  `8.5.12-4-fpm`.
 - `-cli` - consumery a dalsi procesy bez webu (supervisor apod.), bez php-fpm. Tagy
-  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-3-cli` / `8.5.12-3-cli`.
+  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-4-cli` / `8.5.12-4-cli`.
 
 Doporuceny je pripnuty tag (reprodukovatelny build): `<verze PHP>-<revize>-<varianta>`. Revize (`REVISION` ve workflow) se zvysuje pri
 zmene image, ktera muze rozbit projekt (odebrany nastroj, jine chovani) - tydenni rebuild
@@ -27,6 +27,8 @@ Obsahuje:
 - `/usr/local/etc/php/php.ini` s vychozimi hodnotami: `opcache.interned_strings_buffer=32`
   a `opcache.memory_consumption=256` (PHP ma 8 a 128 MB, velkym aplikacim nestaci).
   Pamet opcache se zabira az pri zaplnovani, malym projektum vyssi limit nic nestoji.
+  Dale `session.upload_progress.enabled=0` (od revize 4) - session lifecycle RCE,
+  CVE-2026-109619. Projekt, ktery prubeh nahravani pouziva, si ho zapne ve svem `conf.d`.
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
@@ -35,7 +37,7 @@ Obsahuje:
 Pouziti v projektu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-3-fpm
+FROM appsdevteam/php:8.5.12-4-fpm
 RUN install-php-extensions gd imagick
 ```
 
@@ -44,7 +46,7 @@ u consumeru nastavi na `cli`:
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-3-${VARIANT}
+FROM appsdevteam/php:8.5.12-4-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -54,7 +56,7 @@ Rozsireni jde take odvodit z `ext-*` zavislosti v composer.json projektu, aby je
 programator nemusel vyjmenovavat na dvou mistech:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-3-fpm
+FROM appsdevteam/php:8.5.12-4-fpm
 COPY composer.json ./
 RUN install-composer-extensions composer.json
 ```
@@ -83,5 +85,5 @@ nativni build.
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --push \
-  -t appsdevteam/php:8.5.12-3-fpm -t appsdevteam/php:8.5-fpm base
+  -t appsdevteam/php:8.5.12-4-fpm -t appsdevteam/php:8.5-fpm base
 ```

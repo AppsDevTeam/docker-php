@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 env:
-  REVISION: 3
+  REVISION: 4
 
 jobs:
   build:
