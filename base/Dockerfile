@@ -1,12 +1,15 @@
 # Spolecny zaklad PHP pro webove projekty, aby se bezpecnostni opravy nemusely zanaset do
-# kazdeho repozitare zvlast. Dve varianty ze stejneho Dockerfile:
-# - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm)
+# kazdeho repozitare zvlast. Tri varianty ze stejneho Dockerfile:
+# - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm), stage runtime s VARIANT=fpm
 # - appsdevteam/php:<verze>-<revize>-cli - consumery a dalsi procesy bez webu (supervisor
-#   apod.), bez php-fpm
+#   apod.), bez php-fpm, stage runtime s VARIANT=cli
+# - appsdevteam/php:<verze>-<revize>-composer - jednorazovy kontejner pro `composer install`,
+#   stage composer (cli + composer, git, unzip)
 #
 # Verze PHP a varianta se predavaji z workflow (.github/workflows/base.yml), verze je
-# pripnuta na patch kvuli reprodukovatelnosti. Lokalne:
-#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli base
+# pripnuta na patch kvuli reprodukovatelnosti. Stage se vybira --target (bez nej vznikne
+# posledni = composer). Lokalne:
+#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli --target runtime base
 #
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
@@ -15,10 +18,10 @@
 # mount neprekryva a projekt je muze ve svem conf.d prepsat.
 ARG PHP_VERSION
 ARG VARIANT=fpm
-FROM php:${PHP_VERSION}-${VARIANT}
+FROM php:${PHP_VERSION}-${VARIANT} AS runtime
 
 # Composer, git ani unzip tu nejsou - runtime je nepotrebuje a po pripadnem pruniku by jen
-# pomahaly. Projekt si je da do vlastniho composer stage, viz README.
+# pomahaly. Ma je jen varianta -composer (stage composer na konci).
 # dma (/usr/sbin/sendmail) doruci e-mail z mail() primo na MX prijemce, bez API a klice. Je jen
 # na systemovou postu - chyby z adt/error-logger na error@mail.appsdevteam.com. Bezna posta
 # projektu jde pres adt/mailer (mailapi), na cizi schranky by prima posta neprosla antispamem.
@@ -78,3 +81,22 @@ RUN apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
 # purge vyse.
 RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*
+
+
+# Varianta -composer: runtime (s VARIANT=cli) + composer. Projekt z ni dela composer stage sveho
+# Dockerfile a doinstaluje do ni rozsireni z composer.json (`composer install` kontroluje ext-*
+# proti PHP, ve kterem bezi) - viz README.
+FROM runtime AS composer
+
+# git kvuli VCS repozitarum v composer.json a verzi root balicku, unzip pro rozbalovani archivu.
+COPY --from=composer/composer:2-bin /composer /usr/local/bin/composer
+RUN apt-get update && apt-get install -y --no-install-recommends git unzip \
+&& rm -rf /var/lib/apt/lists/*
+
+# Repozitar patri jinemu UID nez procesu composeru (v CI /builds patri rootu, na serveru
+# release vlastni deploy uzivatel, kontejner bezi pod UID projektu) - git by pak odmitl cist
+# metadata ("dubious ownership") a composer by nezjistil verzi root balicku.
+RUN git config --system --add safe.directory '*'
+
+WORKDIR /var/www/html
+ENTRYPOINT ["composer"]

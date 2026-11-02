@@ -1,14 +1,16 @@
 # docker-php
 
-## appsdevteam/php:&lt;verze&gt;-fpm a -cli
+## appsdevteam/php:&lt;verze&gt;-fpm, -cli a -composer
 
-Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Dve
-varianty se stejnym obsahem:
+Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
 - `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm` a pripnute `8.4.27-5-fpm` /
   `8.5.12-5-fpm`.
 - `-cli` - consumery a dalsi procesy bez webu (supervisor apod.), bez php-fpm. Tagy
-  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-5-cli` / `8.5.12-5-cli`.
+  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
+- `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer` a pripnute `8.4.27-5-composer` /
+  `8.5.12-5-composer`.
 
 Doporuceny je pripnuty tag (reprodukovatelny build): `<verze PHP>-<revize>-<varianta>`. Revize (`REVISION` ve workflow) se zvysuje pri
 zmene image, ktera muze rozbit projekt (odebrany nastroj, jine chovani) - tydenni rebuild
@@ -17,7 +19,7 @@ dokud projekt neprejde na novou.
 
 Obsahuje:
 
-- bez composeru, gitu a unzipu (od revize 5) - viz Composer nize
+- bez composeru, gitu a unzipu (od revize 5, ma je jen `-composer`) - viz Composer nize
 - `eoh`, `cachetool`
 - `dma` jako `sendmail` - `mail()` doruci primo na MX prijemce, bez API a klice. Jen na
   chybove e-maily (adt/error-logger), bezna posta projektu patri do `adt/mailer`.
@@ -77,20 +79,28 @@ opcache zakompilovana natvrdo.
 
 ## Composer
 
-Image composer neobsahuje - bezicimu webu ani consumerum neni k nicemu. Projekt ho ma
-v samostatnem stage stejneho Dockerfile (jednorazovy kontejner pro `composer install`),
-binarku vezme z oficialniho image a git/unzip si doinstaluje:
+Runtime varianty composer neobsahuji - bezicimu webu ani consumerum neni k nicemu. Projekt
+ho ma v samostatnem stage stejneho Dockerfile (jednorazovy kontejner pro `composer install`)
+z varianty `-composer`. Ta ma navic jen composer, git (VCS repozitare, verze root balicku),
+unzip, `safe.directory '*'` (repo casto patri jinemu UID) a `ENTRYPOINT ["composer"]`.
+
+Rozsireni projektu si composer stage doinstaluje stejne jako runtime - `composer install`
+kontroluje `ext-*` proti PHP, ve kterem bezi. `--ignore-platform-req=ext-*` neni nahrada:
+composer pak ignorovana rozsireni vynecha i z runtime kontroly `vendor/composer/platform_check.php`.
+Rozsireni nad ramec base image se tak kompiluji dvakrat (runtime a composer stage).
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-fpm AS base
-COPY composer.json ./
-RUN install-composer-extensions composer.json
+ARG DEV=0
 
-FROM base AS composer
-COPY --from=composer/composer:2-bin /composer /usr/local/bin/composer
-RUN apt-get update && apt-get install -y --no-install-recommends git unzip \
-&& rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["composer"]
+FROM appsdevteam/php:8.5.12-5-fpm AS base
+ARG DEV
+COPY composer.json ./
+RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json
+
+FROM appsdevteam/php:8.5.12-5-composer AS composer
+ARG DEV
+COPY composer.json ./
+RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json
 
 FROM base AS fpm
 ```
@@ -104,6 +114,8 @@ nativni build.
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --push \
+  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target runtime --push \
   -t appsdevteam/php:8.5.12-5-fpm -t appsdevteam/php:8.5-fpm base
 ```
+
+Varianta `-composer` = `--build-arg VARIANT=cli --target composer`.
