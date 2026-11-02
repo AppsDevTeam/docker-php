@@ -54,20 +54,22 @@ FROM appsdevteam/php:8.5.12-5-${VARIANT}
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
 odstrani, `apt-get purge $PHPIZE_DEPS` uz projekt delat nemusi.
 
-Rozsireni jde take odvodit z `ext-*` zavislosti v composer.json projektu, aby je
-programator nemusel vyjmenovavat na dvou mistech:
+Rozsireni jde take odvodit z `ext-*` zavislosti projektu, aby je programator nemusel
+vyjmenovavat na dvou mistech. Zdrojem je composer.json (rozsireni projektu) a composer.lock
+(rozsireni, ktera vyzaduji nainstalovane balicky). Lock predavej vzdy, pokud projekt pouziva
+variantu `-composer` - viz Composer nize. Rozsireni, ktera PHP uz ma, se preskoci.
 
 ```dockerfile
 FROM appsdevteam/php:8.5.12-5-fpm
-COPY composer.json ./
-RUN install-composer-extensions composer.json
+COPY composer.json composer.lock ./
+RUN install-composer-extensions composer.json composer.lock
 ```
 
-Bez prepinace se cte jen `require` (produkcni image). `--dev` prida i `require-dev`,
-obdobne jako `composer install` vs. `composer install --no-dev`:
+Bez prepinace se cte jen `require` / `packages` (produkcni image). `--dev` prida i
+`require-dev` / `packages-dev`, obdobne jako `composer install` vs. `composer install --no-dev`:
 
 ```dockerfile
-RUN install-composer-extensions --dev composer.json
+RUN install-composer-extensions --dev composer.json composer.lock
 ```
 
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
@@ -79,30 +81,33 @@ opcache zakompilovana natvrdo.
 
 ## Composer
 
-Runtime varianty composer neobsahuji - bezicimu webu ani consumerum neni k nicemu. Projekt
-ho ma v samostatnem stage stejneho Dockerfile (jednorazovy kontejner pro `composer install`)
-z varianty `-composer`. Ta ma navic jen composer, git (VCS repozitare, verze root balicku),
-unzip, `safe.directory '*'` (repo casto patri jinemu UID) a `ENTRYPOINT ["composer"]`.
+Runtime varianty composer neobsahuji - bezicimu webu ani consumerum neni k nicemu. Na
+`composer install` je varianta `-composer`, jeden image pro vsechny projekty - projekt ho
+nebuildi, jen pouziva (compose sluzba s `image:`, na serveru otagovany jako
+`<projekt>_composer` pro `dr`). Ma navic composer, git (VCS repozitare, verze root
+balicku), unzip, `safe.directory '*'` (repo casto patri jinemu UID),
+`COMPOSER_HOME=/var/www/html/.composer` a `ENTRYPOINT ["composer"]`.
 
-Rozsireni projektu si composer stage doinstaluje stejne jako runtime - `composer install`
-kontroluje `ext-*` proti PHP, ve kterem bezi. `--ignore-platform-req=ext-*` neni nahrada:
-composer pak ignorovana rozsireni vynecha i z runtime kontroly `vendor/composer/platform_check.php`.
-Rozsireni nad ramec base image se tak kompiluji dvakrat (runtime a composer stage).
+Rozsireni projektu v nem nejsou, proto ma nastaveno `COMPOSER_IGNORE_PLATFORM_REQ=ext-*`
+(verzi PHP composer kontroluje dal - je stejna jako u runtime se stejnym tagem). Kontrolu
+rozsireni nahrazuje runtime image projektu: `install-composer-extensions` nad composer.json
+**a composer.lock** do nej nainstaluje vse, co projekt nebo kterykoli balicek vyzaduje. Bez
+locku by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem za behu.
+Ignorovana rozsireni composer vynecha i z `vendor/composer/platform_check.php`.
 
 ```dockerfile
+FROM appsdevteam/php:8.5.12-5-fpm
 ARG DEV=0
+COPY composer.json composer.lock ./
+RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
+```
 
-FROM appsdevteam/php:8.5.12-5-fpm AS base
-ARG DEV
-COPY composer.json ./
-RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json
-
-FROM appsdevteam/php:8.5.12-5-composer AS composer
-ARG DEV
-COPY composer.json ./
-RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json
-
-FROM base AS fpm
+```yaml
+  composer:
+    image: appsdevteam/php:8.5.12-5-composer   # stejna verze a revize jako runtime
+    profiles: ["tools"]
+    volumes:
+      - ${PROJECT_ROOT}:/var/www/html
 ```
 
 Build a push dela GitHub Actions (`.github/workflows/base.yml`). `docker build` sestavi

@@ -83,9 +83,10 @@ RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*
 
 
-# Varianta -composer: runtime (s VARIANT=cli) + composer. Projekt z ni dela composer stage sveho
-# Dockerfile a doinstaluje do ni rozsireni z composer.json (`composer install` kontroluje ext-*
-# proti PHP, ve kterem bezi) - viz README.
+# Varianta -composer: runtime (s VARIANT=cli) + composer. Jeden image pro vsechny projekty -
+# rozsireni projektu v nem nejsou, proto composer ignoruje ext-* pozadavky
+# (COMPOSER_IGNORE_PLATFORM_REQ nize). Ze ma runtime vsechna potrebna rozsireni, zarucuje
+# install-composer-extensions nad composer.lock v runtime image projektu - viz README.
 FROM runtime AS composer
 
 # git kvuli VCS repozitarum v composer.json a verzi root balicku, unzip pro rozbalovani archivu.
@@ -97,6 +98,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends git unzip \
 # release vlastni deploy uzivatel, kontejner bezi pod UID projektu) - git by pak odmitl cist
 # metadata ("dubious ownership") a composer by nezjistil verzi root balicku.
 RUN git config --system --add safe.directory '*'
+
+# Jen ext-*, ne php: verzi PHP ma composer image stejnou jako runtime (stejny tag).
+# Dan: composer ignorovana rozsireni vynecha i z vendor/composer/platform_check.php.
+ENV COMPOSER_IGNORE_PLATFORM_REQ=ext-*
+# Cache composeru v projektu (<projekt>/.composer, projekt si ji gitignoruje) - kontejner
+# byva read_only a --rm, jinak by se cache stahovala pri kazdem behu znovu.
+ENV COMPOSER_HOME=/var/www/html/.composer
 
 WORKDIR /var/www/html
 ENTRYPOINT ["composer"]

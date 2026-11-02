@@ -1,45 +1,75 @@
 #!/bin/sh
-# Instaluje PHP rozsireni podle `ext-*` zavislosti v composer.json, aby je projekt
-# nemusel rucne vyjmenovavat znovu v Dockerfile - composer.json uz je kvuli Composeru
-# (platform requirements) deklaruje.
+# Instaluje PHP rozsireni podle `ext-*` zavislosti projektu, aby je projekt nemusel rucne
+# vyjmenovavat znovu v Dockerfile.
 #
-# composer.json je mimo build context (zpravidla samostatny adresar jen pro Dockerfile),
-# proto se musi vzdy doplnit pres vlastni COPY/COPY --from a cesta se nedomysli - je to
-# povinny parametr.
+# Zdrojem je composer.json (`ext-*` projektu) a composer.lock (`ext-*`, ktere vyzaduji
+# vsechny nainstalovane balicky). Lock je dulezity: composer v -composer variante bezi
+# s COMPOSER_IGNORE_PLATFORM_REQ=ext-* (rozsireni projektu nema), takze jedinou zarukou,
+# ze runtime ma vsechno, co nektery balicek potrebuje, je instalace podle locku. Bez locku
+# by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem za behu.
 #
-# Bez --dev se cte jen `require` (produkcni image), s --dev i `require-dev` - obdoba
-# `composer install --no-dev` vs. `composer install`.
+# Soubory jsou mimo build context (zpravidla samostatny adresar jen pro Dockerfile),
+# proto se musi vzdy doplnit pres vlastni COPY/COPY --from a cesty se nedomysli - jsou
+# to povinne parametry. Typ souboru se pozna podle obsahu (lock ma klic `packages`).
+#
+# Bez --dev se cte jen `require` / `packages` (produkcni image), s --dev i `require-dev`
+# / `packages-dev` - obdoba `composer install --no-dev` vs. `composer install`.
+#
+# Rozsireni, ktera PHP uz ma (vestavena nebo z base image), se preskoci.
 #
 # Pouziti:
-#   COPY composer.json ./
-#   RUN install-composer-extensions [--dev] composer.json
+#   COPY composer.json composer.lock ./
+#   RUN install-composer-extensions [--dev] composer.json composer.lock
 set -e
 
-SECTIONS="require"
+DEV=0
 if [ "$1" = "--dev" ]; then
-	SECTIONS="require require-dev"
+	DEV=1
 	shift
 fi
 
 if [ -z "$1" ]; then
-	echo "Pouziti: install-composer-extensions [--dev] <cesta-k-composer.json>" >&2
+	echo "Pouziti: install-composer-extensions [--dev] <composer.json> [<composer.lock>]" >&2
 	exit 1
 fi
-COMPOSER_JSON="$1"
 
 EXTENSIONS=$(php -r '
-$data = json_decode(file_get_contents($argv[1]), true);
-foreach (array_slice($argv, 2) as $section) {
-    foreach (array_keys($data[$section] ?? []) as $package) {
-        if (str_starts_with($package, "ext-")) {
-            echo substr($package, 4), " ";
-        }
-    }
+$dev = $argv[1] === "1";
+$extensions = [];
+$collect = function (array $requires) use (&$extensions) {
+	foreach (array_keys($requires) as $package) {
+		if (str_starts_with($package, "ext-")) {
+			$extensions[strtolower(substr($package, 4))] = true;
+		}
+	}
+};
+foreach (array_slice($argv, 2) as $file) {
+	$data = json_decode(file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+	if (isset($data["packages"])) {
+		foreach ($dev ? ["packages", "packages-dev"] : ["packages"] as $section) {
+			foreach ($data[$section] ?? [] as $package) {
+				$collect($package["require"] ?? []);
+			}
+		}
+		$collect($data["platform"] ?: []);
+		if ($dev) {
+			$collect($data["platform-dev"] ?: []);
+		}
+	} else {
+		foreach ($dev ? ["require", "require-dev"] : ["require"] as $section) {
+			$collect($data[$section] ?? []);
+		}
+	}
 }
-' "$COMPOSER_JSON" $SECTIONS)
+foreach (array_keys($extensions) as $extension) {
+	if (!extension_loaded($extension)) {
+		echo $extension, " ";
+	}
+}
+' "$DEV" "$@")
 
 if [ -z "$EXTENSIONS" ]; then
-	echo "Zadne ext-* zavislosti v $COMPOSER_JSON ($SECTIONS), nic k instalaci."
+	echo "Vsechna ext-* z $* uz PHP ma, nic k instalaci."
 	exit 0
 fi
 
