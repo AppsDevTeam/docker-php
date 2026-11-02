@@ -17,12 +17,13 @@ ARG PHP_VERSION
 ARG VARIANT=fpm
 FROM php:${PHP_VERSION}-${VARIANT}
 
-# Runtime nastroje: git kvuli composeru (VCS repozitare v composer.json), unzip pro archivy.
+# Composer, git ani unzip tu nejsou - runtime je nepotrebuje a po pripadnem pruniku by jen
+# pomahaly. Projekt si je da do vlastniho composer stage, viz README.
 # dma (/usr/sbin/sendmail) doruci e-mail z mail() primo na MX prijemce, bez API a klice. Je jen
 # na systemovou postu - chyby z adt/error-logger na error@mail.appsdevteam.com. Bezna posta
 # projektu jde pres adt/mailer (mailapi), na cizi schranky by prima posta neprosla antispamem.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-	git unzip dma \
+	dma \
 && rm -rf /var/lib/apt/lists/*
 
 # Projekty spousti PHP s read_only, no-new-privileges a neroot uzivatelem. Setgid mail se pak
@@ -32,14 +33,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 RUN sed -i 's|^#\?SPOOLDIR.*|SPOOLDIR /tmp|' /etc/dma/dma.conf \
 && grep -qx 'SPOOLDIR /tmp' /etc/dma/dma.conf \
 && chmod 0644 /etc/dma/dma.conf
-
-# Composer installer se overuje proti oficialnimu podpisu (obrana proti MITM / podvrzeni installeru)
-RUN curl --fail -sSL https://getcomposer.org/installer -o composer-setup.php \
-&& EXPECTED="$(curl --fail -sSL https://composer.github.io/installer.sig)" \
-&& ACTUAL="$(sha384sum composer-setup.php | cut -d' ' -f1)" \
-&& [ "$EXPECTED" = "$ACTUAL" ] \
-&& php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
-&& rm composer-setup.php
 
 # Helper pro otevirani souboru v editoru na hostovi (lokalni vyvoj). Netcat, ktery potrebuje,
 # si doinstaluje projekt jen pro local (ARG DEV) - do produkcniho image nepatri.
