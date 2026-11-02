@@ -51,9 +51,9 @@ foreach (array_slice($argv, 2) as $file) {
 				$collect($package["require"] ?? []);
 			}
 		}
-		$collect($data["platform"] ?: []);
+		$collect($data["platform"] ?? []);
 		if ($dev) {
-			$collect($data["platform-dev"] ?: []);
+			$collect($data["platform-dev"] ?? []);
 		}
 	} else {
 		foreach ($dev ? ["require", "require-dev"] : ["require"] as $section) {
@@ -61,9 +61,17 @@ foreach (array_slice($argv, 2) as $file) {
 		}
 	}
 }
+// Composer jmenuje rozsireni jako PHP, jen malymi pismeny a s mezerami nahrazenymi pomlckou
+// ("Zend OPcache" = ext-zend-opcache) - stejne se proto normalizuji i nactena rozsireni.
+$loaded = [];
+foreach (array_merge(get_loaded_extensions(), get_loaded_extensions(true)) as $name) {
+	$loaded[strtolower(str_replace(" ", "-", $name))] = true;
+}
+// Nazvy, ktere install-php-extensions zna jinak nez composer.
+$installerNames = ["zend-opcache" => "opcache"];
 foreach (array_keys($extensions) as $extension) {
-	if (!extension_loaded($extension)) {
-		echo $extension, " ";
+	if (!isset($loaded[$extension])) {
+		echo $installerNames[$extension] ?? $extension, " ";
 	}
 }
 ' "$DEV" "$@")
