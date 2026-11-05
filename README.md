@@ -4,18 +4,28 @@
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm` a pripnute `8.4.27-5-fpm` /
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-5-fpm` /
   `8.5.12-5-fpm`.
 - `-cli` - consumery a dalsi procesy bez webu (supervisor apod.), bez php-fpm. Tagy
-  `8.4-cli` / `8.5-cli` a pripnute `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
+  `8.4-cli` / `8.5-cli`, plovouci podle revize `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
-  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer` a pripnute `8.4.27-5-composer` /
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-5-composer` /
   `8.5.12-5-composer`.
 
-Doporuceny je pripnuty tag (reprodukovatelny build): `<verze PHP>-<revize>-<varianta>`. Revize (`REVISION` ve workflow) se zvysuje pri
-zmene image, ktera muze rozbit projekt (odebrany nastroj, jine chovani) - tydenni rebuild
-s bezpecnostnimi opravami ji nemeni. Starsi revize se uz nesestavuji, zustanou zmrazene,
-dokud projekt neprejde na novou.
+Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
+`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-5-20261105-fpm`. Ten je
+doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
+CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
+prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
+nejvys jeden build - dalsi spusteni workflow ten den spadne, datovy tag se neprepisuje.
+
+Bezpecnostni opravy Debianu prinasi tydenni rebuild (pondeli). Projekt na datovem tagu je
+dostane vedomym bumpem data - signalem je audit image (trivy apod.), ktery zacne hlasit
+opravitelnou zranitelnost.
+
+Revize (`REVISION` ve workflow) se zvysuje pri zmene image, ktera muze rozbit projekt
+(odebrany nastroj, jine chovani) - tydenni rebuild s bezpecnostnimi opravami ji nemeni.
+Starsi revize se uz nesestavuji, zustanou zmrazene, dokud projekt neprejde na novou.
 
 Obsahuje:
 
@@ -39,7 +49,7 @@ Obsahuje:
 Pouziti v projektu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-fpm
+FROM appsdevteam/php:8.5.12-5-20261105-fpm
 RUN install-php-extensions gd imagick
 ```
 
@@ -48,7 +58,7 @@ u consumeru nastavi na `cli`:
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-5-${VARIANT}
+FROM appsdevteam/php:8.5.12-5-20261105-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -60,7 +70,7 @@ vyjmenovavat na dvou mistech. Zdrojem je composer.json (rozsireni projektu) a co
 variantu `-composer` - viz Composer nize. Rozsireni, ktera PHP uz ma, se preskoci.
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-fpm
+FROM appsdevteam/php:8.5.12-5-20261105-fpm
 COPY composer.json composer.lock ./
 RUN install-composer-extensions composer.json composer.lock
 ```
@@ -96,7 +106,7 @@ locku by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem z
 Ignorovana rozsireni composer vynecha i z `vendor/composer/platform_check.php`.
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-fpm
+FROM appsdevteam/php:8.5.12-5-20261105-fpm
 ARG DEV=0
 COPY composer.json composer.lock ./
 RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
@@ -104,7 +114,7 @@ RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json 
 
 ```yaml
   composer:
-    image: appsdevteam/php:8.5.12-5-composer   # stejna verze a revize jako runtime
+    image: appsdevteam/php:8.5.12-5-20261105-composer   # stejny tag jako runtime
     profiles: ["tools"]
     volumes:
       - ${PROJECT_ROOT}:/var/www/html

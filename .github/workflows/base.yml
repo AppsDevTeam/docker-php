@@ -1,8 +1,12 @@
 # Build a push appsdevteam/php:<verze>-<revize>-fpm, -cli a -composer na Docker Hub (amd64 + arm64).
 # -composer je stage composer nad cli runtime, ostatni stage runtime.
 #
-# Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile) -
-# tag zustava stejny, meni se jen verze balicku. Bump PHP = zmenit `php` v matrixu.
+# Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile).
+# Tagy:
+# - <verze>-<revize>-<YYYYMMDD>-<varianta> - neprepisuje se, obsah image je jednoznacne dany
+#   (datum buildu). Projekty pinuji tenhle, bezpecnostni oprava = vedomy bump data.
+# - <verze>-<revize>-<varianta> a <minor>-<varianta> - plovouci, vzdy posledni build.
+# Bump PHP = zmenit `php` v matrixu.
 # Zmena image, ktera muze rozbit projekt (odebrany nastroj, jine chovani), = zvysit REVISION,
 # aby ji tydenni rebuild nepodstrcil projektum pripnutym na predchozi revizi.
 #
@@ -25,7 +29,18 @@ env:
   REVISION: 5
 
 jobs:
+  # Datum se pocita jednou za run: kazdy job matrixu by si ho jinak urcil sam a build
+  # pres pulnoc by fpm, cli a composer otagoval ruznymi daty.
+  date:
+    runs-on: ubuntu-latest
+    outputs:
+      date: ${{ steps.date.outputs.date }}
+    steps:
+      - id: date
+        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: date
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -45,6 +60,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Datovy tag je neprepisovatelny - druhy build v tentyz den by pod stejnym jmenem
+      # podstrcil jiny obsah. Novy build se pak pusti az dalsi den.
+      - run: |
+          tag="appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-${{ needs.date.outputs.date }}-${{ matrix.variant }}"
+          if docker manifest inspect "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag uz existuje, datove tagy se neprepisuji"
+            exit 1
+          fi
       - uses: docker/build-push-action@v6
         with:
           context: base
@@ -58,5 +81,6 @@ jobs:
           pull: true
           push: true
           tags: |
+            appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-${{ needs.date.outputs.date }}-${{ matrix.variant }}
             appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-${{ matrix.variant }}
             appsdevteam/php:${{ matrix.minor }}-${{ matrix.variant }}
