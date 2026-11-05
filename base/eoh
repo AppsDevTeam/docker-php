@@ -6,13 +6,14 @@
 # klasicky nastroj pro pivot po pripadnem pruniku. Port je NC_PORT z .env projektu.
 # timeout - pripojeni na nedostupny host by jinak viselo.
 
+# Z .env se cte jen NC_PORT - `source` by obsah .env spustil jako bash (hodnoty se specialnimi
+# znaky by skoncily jako prikazy, vcetne vypisu tajnych hodnot do chybove hlasky).
+
 if [ ! -f "$PWD/.env" ]; then
 	echo ".env file does not exist, exiting!"
 	exit 1
 fi
 
-set -o allexport
-source "$PWD/.env"
-set +o allexport
+port=$(sed -n 's/^NC_PORT=//p' "$PWD/.env" | tail -n 1 | tr -d "\"' \r")
 
-timeout 1 bash -c 'echo "$1" > "/dev/tcp/host.docker.internal/$2"' _ "$*" "${NC_PORT:-3000}"
+timeout 1 bash -c 'echo "$1" > "/dev/tcp/host.docker.internal/$2"' _ "$*" "${port:-3000}"
