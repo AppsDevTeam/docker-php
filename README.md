@@ -4,20 +4,20 @@
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-5-fpm` /
-  `8.5.12-5-fpm`.
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-6-fpm` /
+  `8.5.12-6-fpm`.
 - `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
-  podle revize `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
+  podle revize `8.4.27-6-cli` / `8.5.12-6-cli`. Obsahem stejne jako `-fpm`.
 - `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
   `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
-  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-5-supervisor` /
-  `8.5.12-5-supervisor`.
+  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-6-supervisor` /
+  `8.5.12-6-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
-  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-5-composer` /
-  `8.5.12-5-composer`.
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-6-composer` /
+  `8.5.12-6-composer`.
 
 Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
-`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-5-20261105-fpm`. Ten je
+`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-6-20261105-fpm`. Ten je
 doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
 CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
 prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
@@ -35,7 +35,7 @@ Starsi revize se uz nesestavuji, zustanou zmrazene, dokud projekt neprejde na no
 Obsahuje:
 
 - bez composeru, gitu a unzipu (od revize 5, ma je jen `-composer`) - viz Composer nize
-- `eoh`, `cachetool`
+- `eoh` (od revize 6 pres `/dev/tcp` bashe - projekt uz nedoinstalovava netcat) a `cachetool`
 - `dma` jako `sendmail` - `mail()` doruci primo na MX prijemce, bez API a klice. Jen na
   chybove e-maily (adt/error-logger), bezna posta projektu patri do `adt/mailer`.
   Projekt `sendmail_path` nenastavuje (vychozi `/usr/sbin/sendmail -t -i` je dma)
@@ -54,7 +54,7 @@ Obsahuje:
 Pouziti v projektu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-20261105-fpm
+FROM appsdevteam/php:8.5.12-6-20261105-fpm
 RUN install-php-extensions gd imagick
 ```
 
@@ -63,7 +63,7 @@ u consumeru nastavi na `supervisor`. Rozsireni projektu tak dostanou oba image s
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-5-20261105-${VARIANT}
+FROM appsdevteam/php:8.5.12-6-20261105-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -75,7 +75,7 @@ vyjmenovavat na dvou mistech. Zdrojem je composer.json (rozsireni projektu) a co
 variantu `-composer` - viz Composer nize. Rozsireni, ktera PHP uz ma, se preskoci.
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-20261105-fpm
+FROM appsdevteam/php:8.5.12-6-20261105-fpm
 COPY composer.json composer.lock ./
 RUN install-composer-extensions composer.json composer.lock
 ```
@@ -90,9 +90,42 @@ RUN install-composer-extensions --dev composer.json composer.lock
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
 projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
 drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo
-mount) - projekt je muze ve svem `conf.d` prepsat. Pri prekrytem `conf.d` je potreba
-rozsireni zapnout v ini projektu (`extension=intl.so` ...); na PHP 8.4 navic `zend_extension=opcache.so` - od 8.5 je
-opcache zakompilovana natvrdo.
+mount) - projekt je muze ve svem `conf.d` prepsat.
+
+### Ini rozsireni (`base.d`, od revize 6)
+
+Ini, ktera zapinaji rozsireni (`docker-php-ext-*.ini`, i tech, ktera projekt doinstaluje pres
+`install-php-extensions` / `install-composer-extensions`), a `docker-fpm.ini` jsou
+v `/usr/local/etc/php/base.d`, ne v `conf.d`. Image nastavuje
+`PHP_INI_SCAN_DIR=/usr/local/etc/php/base.d:/usr/local/etc/php/conf.d` - `base.d` se cte
+prvni, ini projektu v `conf.d` ma posledni slovo. Projekt proto rozsireni ve svem ini
+**nezapina** (`extension=intl.so`, `zend_extension=opcache.so` ...) - dvoji nacteni PHP
+hlasi warningem `Module "intl" is already loaded`, na CLI i do vystupu prikazu.
+
+Projekt, ktery `PHP_INI_SCAN_DIR` nastavuje sam (napr. ini jen pro aktualni stage), musi
+`base.d` ponechat na zacatku:
+
+```yaml
+    environment:
+      - PHP_INI_SCAN_DIR=/usr/local/etc/php/base.d:/usr/local/etc/php/conf.d:/usr/local/etc/php/stage/${STAGE}
+```
+
+`docker-php-ext-enable` volany primo (mimo wrapper) zapisuje do `conf.d` - pod mountem by ini
+zmizelo, pouzivej `install-php-extensions`.
+
+### Pool php-fpm podle stage (od revize 6)
+
+Krome `php-fpm.d/*.conf` nacita `-fpm` i `php-fpm.d/default.${STAGE}.conf.template` - sablonu
+poolu, kterou projekty generuji z `config/docker`. `STAGE` bere php-fpm z prostredi kontejneru
+(`env_file`). Projekt tak sluzbe php nechava vychozi `CMD` (`php-fpm`) a pri startu nic
+nekopiruje:
+
+```yaml
+  php:
+    # bez `command: cp -f .../default.${STAGE}.conf.template .../default.${STAGE}.conf && exec php-fpm`
+```
+
+Projekt, ktery sablonu dal kopiruje, funguje taky - stejny pool nacteny dvakrat php-fpm slouci.
 
 ## Composer
 
@@ -111,7 +144,7 @@ locku by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem z
 Ignorovana rozsireni composer vynecha i z `vendor/composer/platform_check.php`.
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-5-20261105-fpm
+FROM appsdevteam/php:8.5.12-6-20261105-fpm
 ARG DEV=0
 COPY composer.json composer.lock ./
 RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
@@ -119,7 +152,7 @@ RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json 
 
 ```yaml
   composer:
-    image: appsdevteam/php:8.5.12-5-20261105-composer   # stejny tag jako runtime
+    image: appsdevteam/php:8.5.12-6-20261105-composer   # stejny tag jako runtime
     profiles: ["tools"]
     volumes:
       - ${PROJECT_ROOT}:/var/www/html
@@ -135,7 +168,7 @@ nativni build.
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target runtime --push \
-  -t appsdevteam/php:8.5.12-5-fpm -t appsdevteam/php:8.5-fpm base
+  -t appsdevteam/php:8.5.12-6-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
 Varianta `-supervisor` = `--build-arg VARIANT=cli --target supervisor`, `-composer` =

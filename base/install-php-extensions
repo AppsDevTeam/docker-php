@@ -5,6 +5,9 @@
 # install-php-extensions s nimi pocita jako s predinstalovanymi a bez nich spadne na
 # "gcc: not found". Wrapper je proto pred kompilaci doinstaluje a po ni zase odstrani,
 # takze potomek dal pise jen `RUN install-php-extensions gd` a gcc v image nezustane.
+#
+# Ini, kterymi install-php-extensions rozsireni zapina, presouva z conf.d do base.d - conf.d
+# projekty prekryvaji mountem (viz PHP_INI_SCAN_DIR v Dockerfile).
 set -e
 
 apt-get update
@@ -15,6 +18,10 @@ apt-get install -y --no-install-recommends $PHPIZE_DEPS
 
 status=0
 /usr/local/lib/install-php-extensions "$@" || status=$?
+
+for ini in "$PHP_INI_DIR"/conf.d/*.ini; do
+	if [ -e "$ini" ]; then mv "$ini" "$PHP_INI_DIR/base.d/"; fi
+done
 
 # shellcheck disable=SC2086
 apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev

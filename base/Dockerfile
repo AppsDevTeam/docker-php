@@ -16,8 +16,9 @@
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
 # image zapsal, v kontejneru stejne zmizi. Pool (vc. pm.status_path) a ini si dal drzi projekt.
-# Vychozi ini hodnoty image jdou do /usr/local/etc/php/php.ini (viz php.ini vedle) - ten
-# mount neprekryva a projekt je muze ve svem conf.d prepsat.
+# Vychozi ini hodnoty image jdou do /usr/local/etc/php/php.ini (viz php.ini vedle) a ini
+# rozsireni do /usr/local/etc/php/base.d (viz PHP_INI_SCAN_DIR nize) - ani jedno mount
+# neprekryva a projekt je muze ve svem conf.d prepsat.
 ARG PHP_VERSION
 ARG VARIANT=fpm
 FROM php:${PHP_VERSION}-${VARIANT} AS runtime
@@ -39,9 +40,9 @@ RUN sed -i 's|^#\?SPOOLDIR.*|SPOOLDIR /tmp|' /etc/dma/dma.conf \
 && grep -qx 'SPOOLDIR /tmp' /etc/dma/dma.conf \
 && chmod 0644 /etc/dma/dma.conf
 
-# Helper pro otevirani souboru v editoru na hostovi (lokalni vyvoj). Netcat, ktery potrebuje,
-# si doinstaluje projekt jen pro local (ARG DEV) - do produkcniho image nepatri.
-RUN curl --fail -sOL https://git.appsdevteam.com/adt/docker-utils/raw/v1.0/bin/eoh && chmod +x eoh && mv eoh /usr/local/bin/eoh
+# Helper pro otevirani souboru v editoru na hostovi (lokalni vyvoj) - viz komentar ve skriptu.
+# spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
+COPY eoh /usr/local/bin/eoh
 
 # Reset opcache PHP-FPM po deployi (`cachetool opcache:reset` v makefile projektu).
 RUN curl --fail -sOL https://gordalina.github.io/cachetool/downloads/cachetool-9.2.1.phar && chmod +x cachetool-9.2.1.phar && mv cachetool-9.2.1.phar /usr/local/bin/cachetool
@@ -49,32 +50,46 @@ RUN curl --fail -sOL https://gordalina.github.io/cachetool/downloads/cachetool-9
 # Vychozi ini hodnoty (velikosti bufferu opcache) - viz komentar v souboru.
 COPY php.ini /usr/local/etc/php/php.ini
 
+# Pool podle stage: krome *.conf nacte php-fpm i php-fpm.d/default.${STAGE}.conf.template
+# (konvence projektu, sablona z config/docker). Projekt tak nemusi pri startu kopirovat
+# sablonu na *.conf a do mountu php-fpm.d nic nezapisuje. ${STAGE} rozvine php-fpm
+# z prostredi kontejneru, bez STAGE (a v projektu bez sablony) se nenacte nic navic.
+# Pool definovany dvakrat (projekt sablonu stale kopiruje) php-fpm slouci do jednoho.
+# V -cli php-fpm neni.
+RUN if [ -f /usr/local/etc/php-fpm.conf ]; then \
+		sed -i 's|^include=/usr/local/etc/php-fpm.d/\*.conf$|&\ninclude=/usr/local/etc/php-fpm.d/default.${STAGE}.conf.template|' /usr/local/etc/php-fpm.conf \
+		&& grep -qx 'include=/usr/local/etc/php-fpm.d/default.${STAGE}.conf.template' /usr/local/etc/php-fpm.conf; \
+	fi
+
 # Stav opcache pro monitoring (monitoring-agent_phpfpm v server-management-scripts ho vola
 # pres FastCGI :9000). Mimo document root - nginx ho neserviruje.
 COPY opcache-status.php /usr/local/lib/monitoring/opcache-status.php
 
+# Ini z base image (zapnuti rozsireni, docker-fpm.ini) jsou v base.d, ne v conf.d - ten projekty
+# prekryvaji mountem a musely by pak rozsireni zapinat znovu ve svem ini. PHP prohledava base.d
+# pred conf.d, takze ini projektu ma posledni slovo. Projekt, ktery PHP_INI_SCAN_DIR nastavuje
+# sam (napr. ini podle stage), musi base.d ponechat na zacatku.
+ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/base.d:/usr/local/etc/php/conf.d
+RUN mkdir /usr/local/etc/php/base.d \
+&& mv /usr/local/etc/php/conf.d/*.ini /usr/local/etc/php/base.d/
+
 # Spolecne minimum rozsireni. Projekt si dalsi doinstaluje sam: `RUN install-php-extensions gd`.
 # Skutecny mlocati skript je v /usr/local/lib, v PATH je wrapper (viz install-php-extensions
-# vedle), ktery kolem nej doinstaluje a zase odstrani $PHPIZE_DEPS.
+# vedle), ktery kolem nej doinstaluje a zase odstrani $PHPIZE_DEPS a ini novych rozsireni
+# presune do base.d.
 RUN curl --fail -sSL https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions -o /usr/local/lib/install-php-extensions \
-&& chmod +x /usr/local/lib/install-php-extensions \
-&& /usr/local/lib/install-php-extensions intl opcache pdo_mysql sockets sodium zip
+&& chmod +x /usr/local/lib/install-php-extensions
 # spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
 COPY install-php-extensions /usr/local/bin/install-php-extensions
+# Pres wrapper i tady: $PHPIZE_DEPS, ktere base image nechava nainstalovane pro potomky, po sobe
+# odstrani. Jinak by v image zbyvalo gcc/make (pouzitelne po pripadnem pruniku) a hlavicky
+# linux-libc-dev, ktere generuji CVE hlaseni proti kernelu, jenz v kontejneru vubec nebezi
+# (dodava ho host). Potomek si je wrapperem zase doinstaluje.
+RUN install-php-extensions intl opcache pdo_mysql sockets sodium zip
 
 # Alternativa k rucnimu vyjmenovani rozsireni: precte ext-* z composer.json projektu
 # a nainstaluje je - viz komentar ve skriptu.
 COPY install-composer-extensions /usr/local/bin/install-composer-extensions
-
-# $PHPIZE_DEPS nechava base image nainstalovane pro potomky, kteri kompiluji extensions.
-# Wrapper si je v potomkovi doinstaluje sam, takze je tu odstranime: jinak v image zbyva
-# gcc/make (pouzitelne po pripadnem pruniku) a hlavicky linux-libc-dev, ktere generuji CVE
-# hlaseni proti kernelu, jenz v kontejneru vubec nebezi (dodava ho host).
-# libc6-dev explicitne - v $PHPIZE_DEPS je jen virtualni nazev libc-dev, na ktery apt nesedne.
-# linux-libc-dev explicitne - install-php-extensions ho oznaci jako manual, takze by ho
-# --auto-remove nechal v image, i kdyz na nem uz nic nezavisi.
-RUN apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
-&& rm -rf /var/lib/apt/lists/*
 
 # Bezpecnostni aktualizace VSECH balicku. Tag base image je pripnuty, ale Debian vydava
 # opravy prubezne a upstream php image se rebuilduje pomaleji - workflow proto image

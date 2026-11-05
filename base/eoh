@@ -1,0 +1,18 @@
+#!/bin/bash
+# Posle prikaz hostovi, kde ho provede eohd z docker/makefile projektu (otevreni souboru
+# v editoru, ladenky v prohlizeci apod.). Jen pro lokalni vyvoj.
+#
+# Pres /dev/tcp bashe, ne netcat: ten by musel byt v image, a v produkcnim image je to
+# klasicky nastroj pro pivot po pripadnem pruniku. Port je NC_PORT z .env projektu.
+# timeout - pripojeni na nedostupny host by jinak viselo.
+
+if [ ! -f "$PWD/.env" ]; then
+	echo ".env file does not exist, exiting!"
+	exit 1
+fi
+
+set -o allexport
+source "$PWD/.env"
+set +o allexport
+
+timeout 1 bash -c 'echo "$1" > "/dev/tcp/host.docker.internal/$2"' _ "$*" "${NC_PORT:-3000}"
