@@ -1,13 +1,17 @@
 # docker-php
 
-## appsdevteam/php:&lt;verze&gt;-fpm, -cli a -composer
+## appsdevteam/php:&lt;verze&gt;-fpm, -cli, -supervisor a -composer
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
 - `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-5-fpm` /
   `8.5.12-5-fpm`.
-- `-cli` - consumery a dalsi procesy bez webu (supervisor apod.), bez php-fpm. Tagy
-  `8.4-cli` / `8.5-cli`, plovouci podle revize `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
+- `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
+  podle revize `8.4.27-5-cli` / `8.5.12-5-cli`. Obsahem stejne jako `-fpm`.
+- `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
+  `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
+  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-5-supervisor` /
+  `8.5.12-5-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
   (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-5-composer` /
   `8.5.12-5-composer`.
@@ -17,7 +21,8 @@ Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
 doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
 CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
 prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
-nejvys jeden build - dalsi spusteni workflow ten den spadne, datovy tag se neprepisuje.
+nejvys jeden build kazde varianty - dalsi spusteni workflow ten den variantu, ktera uz datovy
+tag ma, preskoci (datovy tag se neprepisuje).
 
 Bezpecnostni opravy Debianu prinasi tydenni rebuild (pondeli). Projekt na datovem tagu je
 dostane vedomym bumpem data - signalem je audit image (trivy apod.), ktery zacne hlasit
@@ -54,7 +59,7 @@ RUN install-php-extensions gd imagick
 ```
 
 Web i consumery ze stejneho Dockerfile projektu - varianta jako build arg, compose ji
-u consumeru nastavi na `cli`:
+u consumeru nastavi na `supervisor`. Rozsireni projektu tak dostanou oba image stejna:
 
 ```dockerfile
 ARG VARIANT=fpm
@@ -133,4 +138,5 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t appsdevteam/php:8.5.12-5-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
-Varianta `-composer` = `--build-arg VARIANT=cli --target composer`.
+Varianta `-supervisor` = `--build-arg VARIANT=cli --target supervisor`, `-composer` =
+`--build-arg VARIANT=cli --target composer`.

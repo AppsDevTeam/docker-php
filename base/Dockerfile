@@ -3,6 +3,8 @@
 # - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm), stage runtime s VARIANT=fpm
 # - appsdevteam/php:<verze>-<revize>-cli - consumery a dalsi procesy bez webu (supervisor
 #   apod.), bez php-fpm, stage runtime s VARIANT=cli
+# - appsdevteam/php:<verze>-<revize>-supervisor - consumery pod supervisorem, stage supervisor
+#   (cli + supervisor)
 # - appsdevteam/php:<verze>-<revize>-composer - jednorazovy kontejner pro `composer install`,
 #   stage composer (cli + composer, git, unzip)
 #
@@ -81,6 +83,16 @@ RUN apt-get purge -y --auto-remove $PHPIZE_DEPS libc6-dev linux-libc-dev \
 # purge vyse.
 RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*
+
+
+# Varianta -supervisor: runtime (s VARIANT=cli) + supervisor pro consumery. Supervisor je python
+# program, takze si pritahne i python3 - proto neni v -cli a -fpm, ktere ho nepotrebuji.
+# Konfiguraci (/etc/supervisor) si mountuje projekt; CMD je jen vychozi, projekty ho casto
+# prepisuji (vyber konfigurace podle stage).
+FROM runtime AS supervisor
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
+&& rm -rf /var/lib/apt/lists/*
+CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
 
 
 # Varianta -composer: runtime (s VARIANT=cli) + composer. Jeden image pro vsechny projekty -

@@ -1,5 +1,6 @@
-# Build a push appsdevteam/php:<verze>-<revize>-fpm, -cli a -composer na Docker Hub (amd64 + arm64).
-# -composer je stage composer nad cli runtime, ostatni stage runtime.
+# Build a push appsdevteam/php:<verze>-<revize>-fpm, -cli, -supervisor a -composer na Docker Hub
+# (amd64 + arm64). -supervisor a -composer jsou stejnojmenne stage nad cli runtime, ostatni stage
+# runtime.
 #
 # Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile).
 # Tagy:
@@ -46,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.4.27', '8.5.12']
-        variant: [fpm, cli, composer]
+        variant: [fpm, cli, supervisor, composer]
         include:
           - php: '8.4.27'
             minor: '8.4'
@@ -61,21 +62,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       # Datovy tag je neprepisovatelny - druhy build v tentyz den by pod stejnym jmenem
-      # podstrcil jiny obsah. Novy build se pak pusti az dalsi den.
-      - run: |
+      # podstrcil jiny obsah. Varianta, ktera ho uz ma, se preskoci (postavi se az dalsi den),
+      # ostatni se postavi - napr. nove pridana varianta hned po pushi.
+      - id: exists
+        run: |
           tag="appsdevteam/php:${{ matrix.php }}-${{ env.REVISION }}-${{ needs.date.outputs.date }}-${{ matrix.variant }}"
           if docker manifest inspect "$tag" > /dev/null 2>&1; then
-            echo "::error::$tag uz existuje, datove tagy se neprepisuji"
-            exit 1
+            echo "::warning::$tag uz existuje, datove tagy se neprepisuji - preskoceno"
+            echo "exists=1" >> "$GITHUB_OUTPUT"
           fi
-      - uses: docker/build-push-action@v6
+      - if: steps.exists.outputs.exists != '1'
+        uses: docker/build-push-action@v6
         with:
           context: base
           platforms: linux/amd64,linux/arm64
-          target: ${{ matrix.variant == 'composer' && 'composer' || 'runtime' }}
+          target: ${{ (matrix.variant == 'fpm' || matrix.variant == 'cli') && 'runtime' || matrix.variant }}
           build-args: |
             PHP_VERSION=${{ matrix.php }}
-            VARIANT=${{ matrix.variant == 'composer' && 'cli' || matrix.variant }}
+            VARIANT=${{ matrix.variant == 'fpm' && 'fpm' || 'cli' }}
           # bez cache: tydenni rebuild musi znovu stahnout apt balicky i base image
           no-cache: true
           pull: true
