@@ -1,6 +1,6 @@
 # Build a push appsdevteam/php:<verze>-<revize>-fpm, -cli, -supervisor a -composer na Docker Hub
-# (amd64 + arm64). -supervisor a -composer jsou stejnojmenne stage nad cli runtime, ostatni stage
-# runtime.
+# (amd64 + arm64). -supervisor a -composer jsou stejnojmenne stage nad cli runtime, -fpm a -cli
+# stage app.
 #
 # Tydenni rebuild kvuli bezpecnostnim opravam Debianu (`apt-get upgrade` v Dockerfile).
 # Tagy:
@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
 
 env:
-  REVISION: 6
+  REVISION: 7
 
 jobs:
   # Datum se pocita jednou za run: kazdy job matrixu by si ho jinak urcil sam a build
@@ -76,7 +76,7 @@ jobs:
         with:
           context: base
           platforms: linux/amd64,linux/arm64
-          target: ${{ (matrix.variant == 'fpm' || matrix.variant == 'cli') && 'runtime' || matrix.variant }}
+          target: ${{ (matrix.variant == 'fpm' || matrix.variant == 'cli') && 'app' || matrix.variant }}
           build-args: |
             PHP_VERSION=${{ matrix.php }}
             VARIANT=${{ matrix.variant == 'fpm' && 'fpm' || 'cli' }}

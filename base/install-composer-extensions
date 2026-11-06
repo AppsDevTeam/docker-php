@@ -17,7 +17,8 @@
 #
 # Rozsireni, ktera PHP uz ma (vestavena nebo z base image), se preskoci.
 #
-# Pouziti:
+# Ve -fpm, -cli a -supervisor ho spousti ONBUILD pri buildu image projektu (viz stage app
+# v Dockerfile), projekt ho sam nevola. Rucne:
 #   COPY composer.json composer.lock ./
 #   RUN install-composer-extensions [--dev] composer.json composer.lock
 set -e

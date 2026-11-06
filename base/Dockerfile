@@ -1,8 +1,8 @@
 # Spolecny zaklad PHP pro webove projekty, aby se bezpecnostni opravy nemusely zanaset do
 # kazdeho repozitare zvlast. Tri varianty ze stejneho Dockerfile:
-# - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm), stage runtime s VARIANT=fpm
+# - appsdevteam/php:<verze>-<revize>-fpm - web (php-fpm), stage app s VARIANT=fpm
 # - appsdevteam/php:<verze>-<revize>-cli - consumery a dalsi procesy bez webu (supervisor
-#   apod.), bez php-fpm, stage runtime s VARIANT=cli
+#   apod.), bez php-fpm, stage app s VARIANT=cli
 # - appsdevteam/php:<verze>-<revize>-supervisor - consumery pod supervisorem, stage supervisor
 #   (cli + supervisor)
 # - appsdevteam/php:<verze>-<revize>-composer - jednorazovy kontejner pro `composer install`,
@@ -11,7 +11,11 @@
 # Verze PHP a varianta se predavaji z workflow (.github/workflows/base.yml), verze je
 # pripnuta na patch kvuli reprodukovatelnosti. Stage se vybira --target (bez nej vznikne
 # posledni = composer). Lokalne:
-#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli --target runtime base
+#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli --target app base
+#
+# -fpm, -cli a -supervisor pri buildu projektu (FROM) samy nainstaluji rozsireni podle
+# composer.json a composer.lock projektu (ONBUILD, viz stage app) - projekt je musi mit
+# v build contextu.
 #
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
@@ -87,8 +91,8 @@ COPY install-php-extensions /usr/local/bin/install-php-extensions
 # (dodava ho host). Potomek si je wrapperem zase doinstaluje.
 RUN install-php-extensions intl opcache pdo_mysql sockets sodium zip
 
-# Alternativa k rucnimu vyjmenovani rozsireni: precte ext-* z composer.json projektu
-# a nainstaluje je - viz komentar ve skriptu.
+# Precte ext-* z composer.json a composer.lock projektu a nainstaluje je - viz komentar ve
+# skriptu. Spousti ho ONBUILD ve stagich app a supervisor.
 COPY install-composer-extensions /usr/local/bin/install-composer-extensions
 
 # Bezpecnostni aktualizace VSECH balicku. Tag base image je pripnuty, ale Debian vydava
@@ -100,6 +104,22 @@ RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*
 
 
+# Varianty -fpm a -cli: runtime + rozsireni projektu. ONBUILD se provede az pri buildu image
+# projektu (hned za jeho FROM): nainstaluje ext-* z composer.json a composer.lock, takze
+# projekt nemusi rozsireni vyjmenovavat ani instalaci zapinat ve svem Dockerfile. Lock je
+# nutny - composer image ext-* nekontroluje (COMPOSER_IGNORE_PLATFORM_REQ ve stagi composer),
+# rozsireni vyzadovane jen zavislosti by jinak chybelo a projevilo se az fatalem za behu.
+# Oba soubory musi byt v build contextu projektu, jinak build spadne - zamerne, kontrola
+# rozsireni se nesmi tise vynechat. DEV=1 (build arg projektu, lokalni vyvoj) prida i ext-*
+# z require-dev/packages-dev.
+# ONBUILD se spousti i u stagi stejneho Dockerfile, ktere z teto stage dedi - proto je
+# v samostatne koncove stagi a ne v runtime, ze ktereho dedi supervisor a composer.
+FROM runtime AS app
+ONBUILD ARG DEV=0
+ONBUILD COPY composer.json composer.lock ./
+ONBUILD RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
+
+
 # Varianta -supervisor: runtime (s VARIANT=cli) + supervisor pro consumery. Supervisor je python
 # program, takze si pritahne i python3 - proto neni v -cli a -fpm, ktere ho nepotrebuji.
 # Konfiguraci (/etc/supervisor) si mountuje projekt; CMD je jen vychozi, projekty ho casto
@@ -108,12 +128,16 @@ FROM runtime AS supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
 && rm -rf /var/lib/apt/lists/*
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
+# Rozsireni projektu jako u -fpm a -cli, viz stage app.
+ONBUILD ARG DEV=0
+ONBUILD COPY composer.json composer.lock ./
+ONBUILD RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
 
 
 # Varianta -composer: runtime (s VARIANT=cli) + composer. Jeden image pro vsechny projekty -
 # rozsireni projektu v nem nejsou, proto composer ignoruje ext-* pozadavky
 # (COMPOSER_IGNORE_PLATFORM_REQ nize). Ze ma runtime vsechna potrebna rozsireni, zarucuje
-# install-composer-extensions nad composer.lock v runtime image projektu - viz README.
+# ONBUILD ve stagich app a supervisor - viz README.
 FROM runtime AS composer
 
 # git kvuli VCS repozitarum v composer.json a verzi root balicku, unzip pro rozbalovani archivu.

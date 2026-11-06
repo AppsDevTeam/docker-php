@@ -4,20 +4,20 @@
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-6-fpm` /
-  `8.5.12-6-fpm`.
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-7-fpm` /
+  `8.5.12-7-fpm`.
 - `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
-  podle revize `8.4.27-6-cli` / `8.5.12-6-cli`. Obsahem stejne jako `-fpm`.
+  podle revize `8.4.27-7-cli` / `8.5.12-7-cli`. Obsahem stejne jako `-fpm`.
 - `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
   `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
-  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-6-supervisor` /
-  `8.5.12-6-supervisor`.
+  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-7-supervisor` /
+  `8.5.12-7-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
-  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-6-composer` /
-  `8.5.12-6-composer`.
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-7-composer` /
+  `8.5.12-7-composer`.
 
 Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
-`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-6-20261105-fpm`. Ten je
+`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-7-20261106-fpm`. Ten je
 doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
 CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
 prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
@@ -51,11 +51,18 @@ Obsahuje:
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
   opravami Debianu (rebuild kazdy tyden)
 
-Pouziti v projektu:
+Pouziti v projektu - rozsireni z `ext-*` projektu se nainstaluji sama (viz Rozsireni
+projektu nize), `composer.json` a `composer.lock` musi byt v build contextu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-6-20261105-fpm
-RUN install-php-extensions gd imagick
+FROM appsdevteam/php:8.5.12-7-20261106-fpm
+```
+
+Rozsireni mimo `ext-*` (napr. pro nastroj, ktery composer nezna) projekt doinstaluje sam:
+
+```dockerfile
+FROM appsdevteam/php:8.5.12-7-20261106-fpm
+RUN install-php-extensions imagick
 ```
 
 Web i consumery ze stejneho Dockerfile projektu - varianta jako build arg, compose ji
@@ -63,34 +70,37 @@ u consumeru nastavi na `supervisor`. Rozsireni projektu tak dostanou oba image s
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-6-20261105-${VARIANT}
+FROM appsdevteam/php:8.5.12-7-20261106-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
 odstrani, `apt-get purge $PHPIZE_DEPS` uz projekt delat nemusi.
 
-Rozsireni jde take odvodit z `ext-*` zavislosti projektu, aby je programator nemusel
-vyjmenovavat na dvou mistech. Zdrojem je composer.json (rozsireni projektu) a composer.lock
-(rozsireni, ktera vyzaduji nainstalovane balicky). Lock predavej vzdy, pokud projekt pouziva
-variantu `-composer` - viz Composer nize. Rozsireni, ktera PHP uz ma, se preskoci.
-
-```dockerfile
-FROM appsdevteam/php:8.5.12-6-20261105-fpm
-COPY composer.json composer.lock ./
-RUN install-composer-extensions composer.json composer.lock
-```
-
-Bez prepinace se cte jen `require` / `packages` (produkcni image). `--dev` prida i
-`require-dev` / `packages-dev`, obdobne jako `composer install` vs. `composer install --no-dev`:
-
-```dockerfile
-RUN install-composer-extensions --dev composer.json composer.lock
-```
-
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
 projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
 drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo
 mount) - projekt je muze ve svem `conf.d` prepsat.
+
+### Rozsireni projektu (`ONBUILD`, od revize 7)
+
+`-fpm`, `-cli` a `-supervisor` maji `ONBUILD`: pri buildu image projektu (hned za jeho `FROM`)
+zkopiruji `composer.json` a `composer.lock` z build contextu a `install-composer-extensions`
+nainstaluje vsechna `ext-*`, ktera vyzaduje projekt (composer.json) nebo kterykoli
+nainstalovany balicek (composer.lock). Rozsireni, ktera PHP uz ma, se preskoci. Projekt je
+tak nevyjmenovava na dvou mistech a na instalaci nemuze zapomenout.
+
+- Oba soubory musi byt v build contextu, jinak build spadne (`"/composer.lock": not found`) -
+  zamerne, kontrola rozsireni se nesmi tise vynechat. Context projektu byva samostatny
+  adresar jen pro Dockerfile, soubory do nej projekt kopiruje pred buildem.
+- Bez build argu se cte jen `require` / `packages` (produkcni image). Build arg `DEV=1`
+  prida i `require-dev` / `packages-dev`, obdobne jako `composer install` vs.
+  `composer install --no-dev`. Projekt si `ARG DEV` deklarovat nemusi, staci ho predat
+  (`--build-arg DEV=1`, `build.args` v compose).
+- `ONBUILD` se provede jen u prime potomka (image projektu), ne u image, ktery dedi z nej.
+- Projekt, ktery instalaci jeste vola sam (`COPY composer.json composer.lock` +
+  `RUN install-composer-extensions`, revize 6 a starsi), funguje dal - podruhe se nic
+  neinstaluje. Radky muze smazat.
+- `-composer` `ONBUILD` nema (jeden image pro vsechny projekty, nebuildi se).
 
 ### Ini rozsireni (`base.d`, od revize 6)
 
@@ -143,16 +153,16 @@ rozsireni nahrazuje runtime image projektu: `install-composer-extensions` nad co
 locku by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem za behu.
 Ignorovana rozsireni composer vynecha i z `vendor/composer/platform_check.php`.
 
+Instalaci rozsireni dela `ONBUILD` (viz Rozsireni projektu vyse), Dockerfile projektu je jen
+`FROM`:
+
 ```dockerfile
-FROM appsdevteam/php:8.5.12-6-20261105-fpm
-ARG DEV=0
-COPY composer.json composer.lock ./
-RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
+FROM appsdevteam/php:8.5.12-7-20261106-fpm
 ```
 
 ```yaml
   composer:
-    image: appsdevteam/php:8.5.12-6-20261105-composer   # stejny tag jako runtime
+    image: appsdevteam/php:8.5.12-7-20261106-composer   # stejny tag jako runtime
     profiles: ["tools"]
     volumes:
       - ${PROJECT_ROOT}:/var/www/html
@@ -167,9 +177,10 @@ nativni build.
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target runtime --push \
-  -t appsdevteam/php:8.5.12-6-fpm -t appsdevteam/php:8.5-fpm base
+  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target app --push \
+  -t appsdevteam/php:8.5.12-7-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
-Varianta `-supervisor` = `--build-arg VARIANT=cli --target supervisor`, `-composer` =
+Varianta `-cli` = `--build-arg VARIANT=cli --target app`, `-supervisor` =
+`--build-arg VARIANT=cli --target supervisor`, `-composer` =
 `--build-arg VARIANT=cli --target composer`.
