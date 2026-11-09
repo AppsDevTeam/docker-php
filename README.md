@@ -4,20 +4,20 @@
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-7-fpm` /
-  `8.5.12-7-fpm`.
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-8-fpm` /
+  `8.5.12-8-fpm`.
 - `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
-  podle revize `8.4.27-7-cli` / `8.5.12-7-cli`. Obsahem stejne jako `-fpm`.
+  podle revize `8.4.27-8-cli` / `8.5.12-8-cli`. Obsahem stejne jako `-fpm`.
 - `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
   `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
-  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-7-supervisor` /
-  `8.5.12-7-supervisor`.
+  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-8-supervisor` /
+  `8.5.12-8-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
-  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-7-composer` /
-  `8.5.12-7-composer`.
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-8-composer` /
+  `8.5.12-8-composer`.
 
 Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
-`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-7-20261106-fpm`. Ten je
+`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-8-20261109-fpm`. Ten je
 doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
 CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
 prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
@@ -48,6 +48,8 @@ Obsahuje:
   CVE-2026-109619. Projekt, ktery prubeh nahravani pouziva, si ho zapne ve svem `conf.d`.
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
+- `HEALTHCHECK` php-fpm s watchdogem, ktery zaseknuty FPM restartuje (od revize 8, jen
+  `-fpm`) - viz Healthcheck a watchdog php-fpm nize
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
   opravami Debianu (rebuild kazdy tyden)
 
@@ -55,13 +57,13 @@ Pouziti v projektu - rozsireni z `ext-*` projektu se nainstaluji sama (viz Rozsi
 projektu nize), `composer.json` a `composer.lock` musi byt v build contextu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-7-20261106-fpm
+FROM appsdevteam/php:8.5.12-8-20261109-fpm
 ```
 
 Rozsireni mimo `ext-*` (napr. pro nastroj, ktery composer nezna) projekt doinstaluje sam:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-7-20261106-fpm
+FROM appsdevteam/php:8.5.12-8-20261109-fpm
 RUN install-php-extensions imagick
 ```
 
@@ -70,7 +72,7 @@ u consumeru nastavi na `supervisor`. Rozsireni projektu tak dostanou oba image s
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-7-20261106-${VARIANT}
+FROM appsdevteam/php:8.5.12-8-20261109-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -137,6 +139,34 @@ nekopiruje:
 
 Projekt, ktery sablonu dal kopiruje, funguje taky - stejny pool nacteny dvakrat php-fpm slouci.
 
+### Healthcheck a watchdog php-fpm (od revize 8)
+
+`-fpm` (stage `app`) ma `HEALTHCHECK` (`php-fpm-healthcheck`, kazdych 10 s): FastCGI
+pozadavek na prazdny skript `/usr/local/lib/monitoring/healthcheck.php` na `127.0.0.1:9000`.
+Odpoved znamena, ze nejaky worker pozadavek prijal a dokoncil. Na `/status` se kontrola
+nepta - `pm.status_path` je v poolu projektu, ktery image nezapne (`php-fpm.d` prekryva
+mount), skript v image je ve vsech projektech. Jakakoli odpoved je zivy pool.
+
+Zaseknuty php-fpm (vsechny workery visi, pozadavky jen cekaji ve fronte) kontrola po
+**12 selhanich v rade (2 minuty)** restartuje: masteru posle SIGTERM, kontejner skonci
+a `restart: always` ho spusti znovu. Docker sam unhealthy kontejner nerestartuje (umi to
+jen Swarm). Zasah je v `docker logs` (`php-fpm-healthcheck: ... restartuji php-fpm`),
+restart v `RestartCount` kontejneru. Rozpracovane pozadavky restart ukonci - dlouhe
+legitimni pozadavky (exporty) na vsech workerech soucasne by ho spustily taky.
+
+Nastaveni (env kontejneru, `env_file`):
+
+| Promenna | Vychozi | |
+|---|---|---|
+| `PHP_FPM_WATCHDOG` | `1` | `0` = jen hlasit unhealthy, nerestartovat |
+| `PHP_FPM_WATCHDOG_FAILURES` | `12` | pocet selhani v rade pred restartem (x 10 s) |
+| `PHP_FPM_HEALTHCHECK_TIMEOUT` | `5` | limit odpovedi v sekundach |
+| `PHP_FPM_HEALTHCHECK_ADDRESS` | `127.0.0.1:9000` | kde FPM posloucha (`listen` poolu) |
+
+Kontejner bez FPM mastera (`-cli`, `-fpm` image spoustejici jiny proces) se nekontroluje.
+Jednotlive viseci pozadavky ma ukoncovat `request_terminate_timeout` v poolu projektu -
+watchdog je pojistka pro pripad, kdy visi vsechny.
+
 ## Composer
 
 Runtime varianty composer neobsahuji - bezicimu webu ani consumerum neni k nicemu. Na
@@ -157,12 +187,12 @@ Instalaci rozsireni dela `ONBUILD` (viz Rozsireni projektu vyse), Dockerfile pro
 `FROM`:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-7-20261106-fpm
+FROM appsdevteam/php:8.5.12-8-20261109-fpm
 ```
 
 ```yaml
   composer:
-    image: appsdevteam/php:8.5.12-7-20261106-composer   # stejny tag jako runtime
+    image: appsdevteam/php:8.5.12-8-20261109-composer   # stejny tag jako runtime
     profiles: ["tools"]
     volumes:
       - ${PROJECT_ROOT}:/var/www/html
@@ -178,7 +208,7 @@ nativni build.
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target app --push \
-  -t appsdevteam/php:8.5.12-7-fpm -t appsdevteam/php:8.5-fpm base
+  -t appsdevteam/php:8.5.12-8-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
 Varianta `-cli` = `--build-arg VARIANT=cli --target app`, `-supervisor` =

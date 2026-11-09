@@ -115,6 +115,14 @@ RUN apt-get update && apt-get upgrade -y \
 # ONBUILD se spousti i u stagi stejneho Dockerfile, ktere z teto stage dedi - proto je
 # v samostatne koncove stagi a ne v runtime, ze ktereho dedi supervisor a composer.
 FROM runtime AS app
+# Healthcheck php-fpm + watchdog: zaseknuty FPM (2 min bez odpovedi) restartuje - viz
+# komentar ve skriptu. Jen tady: -supervisor a -composer FPM nemaji, v -cli kontrola
+# FPM mastera nenajde a projde. Projekt muze prepsat v compose (healthcheck:) nebo
+# watchdog vypnout env PHP_FPM_WATCHDOG=0.
+# spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
+COPY php-fpm-healthcheck /usr/local/bin/php-fpm-healthcheck
+COPY healthcheck.php /usr/local/lib/monitoring/healthcheck.php
+HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 CMD ["php-fpm-healthcheck"]
 ONBUILD ARG DEV=0
 ONBUILD COPY composer.json composer.lock ./
 ONBUILD RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock

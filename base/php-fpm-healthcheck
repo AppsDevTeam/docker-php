@@ -1,0 +1,164 @@
+#!/usr/local/bin/php -n
+<?php
+// Docker HEALTHCHECK varianty -fpm + watchdog zaseknuteho php-fpm.
+//
+// Kontrola: FastCGI pozadavek na /usr/local/lib/monitoring/healthcheck.php (prazdny skript
+// v image) na 127.0.0.1:9000. Odpoved = nejaky worker prijal pozadavek a dokoncil ho.
+// pm.status_path ne - je v poolu projektu (php-fpm.d prekryva mount), image ho zapnout
+// neumi. Jakakoli FastCGI odpoved (i chyba skriptu kvuli open_basedir) znamena zivy pool. Neodpovi-li do PHP_FPM_HEALTHCHECK_TIMEOUT s, je to selhani - typicky vsechny
+// workery visi (pomale dotazy, zamky, sit) a dalsi pozadavky jen cekaji ve fronte.
+//
+// Watchdog: po PHP_FPM_WATCHDOG_FAILURES selhanich v rade (pri intervalu 10 s vychozi
+// 12 = 2 minuty, kratke spicky to prezije) posle FPM masteru SIGTERM. Master ukonci
+// workery a skonci, kontejner skonci a `restart: always` ho spusti znovu. Docker sam
+// unhealthy kontejner nerestartuje (umi to jen Swarm), proto to dela kontrola. Kdyz master
+// do 30 s neskonci, dostanou workery SIGKILL. PHP_FPM_WATCHDOG=0 = jen hlasit unhealthy,
+// nerestartovat.
+//
+// `php -n`: bez ini projektu - jeho disable_functions/open_basedir se sem nesmi propsat.
+// Pocitadlo je v /tmp a v nazvu ma cas startu mastera, takze po restartu zacina od nuly
+// i tam, kde /tmp restart prezije (kontejner bez tmpfs).
+//
+// Kontejner bez FPM mastera (-cli, -supervisor, -fpm image spoustejici jiny proces) se
+// nekontroluje - kontrola projde.
+
+const SCRIPT = '/usr/local/lib/monitoring/healthcheck.php';
+const KILL_AFTER = 30;
+
+$address = getenv('PHP_FPM_HEALTHCHECK_ADDRESS') ?: '127.0.0.1:9000';
+$timeout = (float) (getenv('PHP_FPM_HEALTHCHECK_TIMEOUT') ?: 5);
+$maxFailures = (int) (getenv('PHP_FPM_WATCHDOG_FAILURES') ?: 12);
+$watchdog = getenv('PHP_FPM_WATCHDOG') !== '0';
+
+function cmdline(string $pid): string
+{
+	return str_replace("\0", ' ', (string) @file_get_contents("/proc/$pid/cmdline"));
+}
+
+// pid FPM mastera a workeru (titulek procesu nastavuje php-fpm sam)
+$master = null;
+$workers = [];
+foreach (glob('/proc/[0-9]*') as $dir) {
+	$pid = basename($dir);
+	$cmd = cmdline($pid);
+	if (str_starts_with($cmd, 'php-fpm: master process')) {
+		$master = $pid;
+	} elseif (str_starts_with($cmd, 'php-fpm: pool ')) {
+		$workers[] = (int) $pid;
+	}
+}
+if ($master === null) {
+	echo "php-fpm master nebezi - nekontroluje se\n";
+	exit(0);
+}
+
+// cas startu mastera (22. pole /proc/<pid>/stat, za "(comm)")
+$stat = (string) @file_get_contents("/proc/$master/stat");
+$fields = explode(' ', substr($stat, strrpos($stat, ')') + 2));
+$stateFile = '/tmp/php-fpm-healthcheck.' . ($fields[19] ?? '0');
+
+function log_container(string $msg): void
+{
+	// do logu kontejneru (stderr PID 1), vystup kontroly vidi jen `docker inspect`. Pres
+	// shell - PHP by symlink /proc/1/fd/2 rozbalilo na neexistujici "pipe:[...]".
+	exec('echo ' . escapeshellarg("php-fpm-healthcheck: $msg") . ' > /proc/1/fd/2 2>/dev/null');
+}
+
+function signal(int $pid, int $sig): void
+{
+	if (function_exists('posix_kill')) {
+		posix_kill($pid, $sig);
+	} else {
+		exec("kill -$sig $pid 2>/dev/null");
+	}
+}
+
+function record(int $type, string $content): string
+{
+	$pad = (8 - strlen($content) % 8) % 8;
+	return pack('CCnnCC', 1, $type, 1, strlen($content), $pad, 0) . $content . str_repeat("\0", $pad);
+}
+
+function pair(string $name, string $value): string
+{
+	$len = fn(string $s) => strlen($s) < 128 ? chr(strlen($s)) : pack('N', strlen($s) | 0x80000000);
+	return $len($name) . $len($value) . $name . $value;
+}
+
+// null = odpoved prisla, jinak duvod selhani
+function probe(string $address, float $timeout): ?string
+{
+	$deadline = microtime(true) + $timeout;
+	$sock = @stream_socket_client("tcp://$address", $errno, $errstr, $timeout);
+	if ($sock === false) {
+		return "spojeni na $address: $errstr";
+	}
+	$params = '';
+	foreach ([
+		'SCRIPT_FILENAME' => SCRIPT,
+		'SCRIPT_NAME' => SCRIPT,
+		'REQUEST_URI' => SCRIPT,
+		'REQUEST_METHOD' => 'GET',
+		'QUERY_STRING' => '',
+		'SERVER_PROTOCOL' => 'HTTP/1.1',
+		'GATEWAY_INTERFACE' => 'CGI/1.1',
+		'REMOTE_ADDR' => '127.0.0.1',
+		'SERVER_NAME' => 'localhost',
+	] as $name => $value) {
+		$params .= pair($name, $value);
+	}
+	// BEGIN_REQUEST (role responder, bez keep-alive), PARAMS, prazdne PARAMS a STDIN
+	fwrite($sock, record(1, pack('nCx5', 1, 0)) . record(4, $params) . record(4, '') . record(5, ''));
+
+	$buf = '';
+	while (($left = $deadline - microtime(true)) > 0) {
+		stream_set_timeout($sock, (int) $left, (int) (fmod($left, 1) * 1e6));
+		$chunk = fread($sock, 8192);
+		if ($chunk === false || $chunk === '') {
+			if (stream_get_meta_data($sock)['timed_out']) {
+				break;
+			}
+			if (feof($sock)) {
+				return 'php-fpm zavrel spojeni bez odpovedi';
+			}
+			continue;
+		}
+		$buf .= $chunk;
+		// hledat END_REQUEST (typ 3) - pozadavek byl dokoncen
+		for ($off = 0; strlen($buf) - $off >= 8;) {
+			$h = unpack('Cversion/Ctype/nid/nlen/Cpad', substr($buf, $off, 7));
+			if ($h['type'] === 3) {
+				return null;
+			}
+			$off += 8 + $h['len'] + $h['pad'];
+		}
+	}
+	return sprintf('php-fpm neodpovedel do %g s', $timeout);
+}
+
+$error = probe($address, $timeout);
+if ($error === null) {
+	@unlink($stateFile);
+	echo "ok\n";
+	exit(0);
+}
+
+// selhani: pocitadlo (a cas SIGTERM) v $stateFile - "<pocet> [<cas SIGTERM>]"
+$state = explode(' ', trim((string) @file_get_contents($stateFile)));
+$failures = (int) ($state[0] ?? 0) + 1;
+$termAt = (int) ($state[1] ?? 0);
+
+if ($watchdog && $termAt === 0 && $failures >= $maxFailures) {
+	log_container("$error, $failures. selhani v rade - restartuji php-fpm (SIGTERM masteru $master)");
+	signal((int) $master, 15);
+	$termAt = time();
+} elseif ($termAt > 0 && time() - $termAt >= KILL_AFTER) {
+	log_container('master po SIGTERM porad bezi - SIGKILL workerum ' . implode(' ', $workers));
+	foreach ($workers as $pid) {
+		signal($pid, 9);
+	}
+}
+@file_put_contents($stateFile, $termAt > 0 ? "$failures $termAt" : "$failures");
+
+echo "$error ($failures/$maxFailures" . ($watchdog ? '' : ', watchdog vypnuty') . ")\n";
+exit(1);
