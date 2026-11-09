@@ -149,7 +149,8 @@ nepta - `pm.status_path` je v poolu projektu, ktery image nezapne (`php-fpm.d` p
 mount), skript v image je ve vsech projektech. Jakakoli odpoved je zivy pool.
 
 Zaseknuty php-fpm (vsechny workery visi, pozadavky jen cekaji ve fronte) kontrola po
-**12 selhanich v rade (2 minuty)** restartuje: masteru posle SIGTERM, kontejner skonci
+**2 minutach selhavani v rade** restartuje (pocita se cas, ne pocet kontrol - docker
+spousti dalsi kontrolu az 10 s po dobehnuti predchozi a neuspesna trva az 5 s): masteru posle SIGTERM, kontejner skonci
 a `restart: always` ho spusti znovu. Docker sam unhealthy kontejner nerestartuje (umi to
 jen Swarm). Zasah je v `docker logs` (`php-fpm-healthcheck: ... restartuji php-fpm`),
 restart v `RestartCount` kontejneru. Rozpracovane pozadavky restart ukonci - dlouhe
@@ -160,7 +161,7 @@ Nastaveni (env kontejneru, `env_file`):
 | Promenna | Vychozi | |
 |---|---|---|
 | `PHP_FPM_WATCHDOG` | `1` | `0` = jen hlasit unhealthy, nerestartovat |
-| `PHP_FPM_WATCHDOG_FAILURES` | `12` | pocet selhani v rade pred restartem (x 10 s) |
+| `PHP_FPM_WATCHDOG_AFTER` | `120` | po kolika sekundach selhavani v rade restartovat |
 | `PHP_FPM_HEALTHCHECK_TIMEOUT` | `5` | limit odpovedi v sekundach |
 | `PHP_FPM_HEALTHCHECK_ADDRESS` | porty FPM mastera | `host:port` carkou oddelene, misto automatickeho zjisteni |
 

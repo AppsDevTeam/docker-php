@@ -10,8 +10,11 @@
 // neumi. Jakakoli FastCGI odpoved (i chyba skriptu kvuli open_basedir) znamena zivy pool. Neodpovi-li do PHP_FPM_HEALTHCHECK_TIMEOUT s, je to selhani - typicky vsechny
 // workery visi (pomale dotazy, zamky, sit) a dalsi pozadavky jen cekaji ve fronte.
 //
-// Watchdog: po PHP_FPM_WATCHDOG_FAILURES selhanich v rade (pri intervalu 10 s vychozi
-// 12 = 2 minuty, kratke spicky to prezije) posle FPM masteru SIGTERM. Master ukonci
+// Watchdog: kdyz kontrola selhava v rade PHP_FPM_WATCHDOG_AFTER s (vychozi 120, kratke
+// spicky to prezije), posle FPM masteru SIGTERM. Pocita se cas od zacatku prvniho
+// selhani, ne pocet kontrol: docker spousti dalsi kontrolu az interval PO dobehnuti
+// predchozi, neuspesna trva az timeout, takze "12 kontrol" by byly ~3 min misto 2
+// (drill na kanclu 9. 11. 2026). Master ukonci
 // workery a skonci, kontejner skonci a `restart: always` ho spusti znovu. Docker sam
 // unhealthy kontejner nerestartuje (umi to jen Swarm), proto to dela kontrola. Kdyz master
 // do 30 s neskonci, dostanou workery SIGKILL. PHP_FPM_WATCHDOG=0 = jen hlasit unhealthy,
@@ -28,7 +31,7 @@ const SCRIPT = '/usr/local/lib/monitoring/healthcheck.php';
 const KILL_AFTER = 30;
 
 $timeout = (float) (getenv('PHP_FPM_HEALTHCHECK_TIMEOUT') ?: 5);
-$maxFailures = (int) (getenv('PHP_FPM_WATCHDOG_FAILURES') ?: 12);
+$restartAfter = (int) (getenv('PHP_FPM_WATCHDOG_AFTER') ?: 120);
 $watchdog = getenv('PHP_FPM_WATCHDOG') !== '0';
 
 function cmdline(string $pid): string
@@ -204,13 +207,15 @@ if (!$errors) {
 }
 $error = implode('; ', $errors);
 
-// selhani: pocitadlo (a cas SIGTERM) v $stateFile - "<pocet> [<cas SIGTERM>]"
+// selhani: zacatek prvniho selhani v rade (a cas SIGTERM) v $stateFile -
+// "<zacatek> [<cas SIGTERM>]"; zacatek = start teto kontroly (pred cekanim na timeout)
 $state = explode(' ', trim((string) @file_get_contents($stateFile)));
-$failures = (int) ($state[0] ?? 0) + 1;
+$failingSince = (int) ($state[0] ?? 0) ?: (int) ($deadline - $timeout);
 $termAt = (int) ($state[1] ?? 0);
+$failingFor = time() - $failingSince;
 
-if ($watchdog && $termAt === 0 && $failures >= $maxFailures) {
-	log_container("$error, $failures. selhani v rade - restartuji php-fpm (SIGTERM masteru $master)");
+if ($watchdog && $termAt === 0 && $failingFor >= $restartAfter) {
+	log_container("$error, selhava {$failingFor} s - restartuji php-fpm (SIGTERM masteru $master)");
 	signal((int) $master, 15);
 	$termAt = time();
 } elseif ($termAt > 0 && time() - $termAt >= KILL_AFTER) {
@@ -219,7 +224,7 @@ if ($watchdog && $termAt === 0 && $failures >= $maxFailures) {
 		signal($pid, 9);
 	}
 }
-@file_put_contents($stateFile, $termAt > 0 ? "$failures $termAt" : "$failures");
+@file_put_contents($stateFile, $termAt > 0 ? "$failingSince $termAt" : "$failingSince");
 
-echo "$error ($failures/$maxFailures" . ($watchdog ? '' : ', watchdog vypnuty') . ")\n";
+echo "$error (selhava {$failingFor} s / {$restartAfter} s" . ($watchdog ? '' : ', watchdog vypnuty') . ")\n";
 exit(1);
