@@ -3,7 +3,9 @@
 // Docker HEALTHCHECK varianty -fpm + watchdog zaseknuteho php-fpm.
 //
 // Kontrola: FastCGI pozadavek na /usr/local/lib/monitoring/healthcheck.php (prazdny skript
-// v image) na 127.0.0.1:9000. Odpoved = nejaky worker prijal pozadavek a dokoncil ho.
+// v image) na KAZDY TCP port, na kterem FPM master posloucha (= kazdy pool, zjisti se z jeho
+// socketu v /proc/net/tcp; nezjisti-li se nic, 127.0.0.1:9000). Odpoved = nejaky worker
+// poolu prijal pozadavek a dokoncil ho. Selhani kterehokoli poolu = selhani kontroly.
 // pm.status_path ne - je v poolu projektu (php-fpm.d prekryva mount), image ho zapnout
 // neumi. Jakakoli FastCGI odpoved (i chyba skriptu kvuli open_basedir) znamena zivy pool. Neodpovi-li do PHP_FPM_HEALTHCHECK_TIMEOUT s, je to selhani - typicky vsechny
 // workery visi (pomale dotazy, zamky, sit) a dalsi pozadavky jen cekaji ve fronte.
@@ -25,7 +27,6 @@
 const SCRIPT = '/usr/local/lib/monitoring/healthcheck.php';
 const KILL_AFTER = 30;
 
-$address = getenv('PHP_FPM_HEALTHCHECK_ADDRESS') ?: '127.0.0.1:9000';
 $timeout = (float) (getenv('PHP_FPM_HEALTHCHECK_TIMEOUT') ?: 5);
 $maxFailures = (int) (getenv('PHP_FPM_WATCHDOG_FAILURES') ?: 12);
 $watchdog = getenv('PHP_FPM_WATCHDOG') !== '0';
@@ -56,6 +57,44 @@ if ($master === null) {
 $stat = (string) @file_get_contents("/proc/$master/stat");
 $fields = explode(' ', substr($stat, strrpos($stat, ')') + 2));
 $stateFile = '/tmp/php-fpm-healthcheck.' . ($fields[19] ?? '0');
+
+// Adresy poolu: PHP_FPM_HEALTHCHECK_ADDRESS (carkou oddelene host:port), jinak naslouchajici
+// TCP sockety mastera - inody jeho fd sparovane s /proc/net/tcp{,6} (stav 0A = LISTEN).
+// Wildcard (listen = 9000) -> 127.0.0.1. Sockety jinych procesu (napr. DNS dockeru
+// na 127.0.0.11) se tak nezapocitaji.
+function listen_addresses(string $master): array
+{
+	$inodes = [];
+	foreach (glob("/proc/$master/fd/*") ?: [] as $fd) {
+		if (preg_match('/^socket:\[(\d+)\]$/', (string) @readlink($fd), $m)) {
+			$inodes[$m[1]] = true;
+		}
+	}
+	$addresses = [];
+	foreach (['tcp', 'tcp6'] as $proto) {
+		foreach (array_slice(@file("/proc/net/$proto") ?: [], 1) as $line) {
+			$f = preg_split('/\s+/', trim($line));
+			if (($f[3] ?? '') !== '0A' || !isset($inodes[$f[9] ?? ''])) {
+				continue;
+			}
+			[$hexIp, $hexPort] = explode(':', $f[1]);
+			$port = hexdec($hexPort);
+			if (trim($hexIp, '0') === '') {
+				$host = '127.0.0.1';
+			} elseif ($proto === 'tcp') {
+				$host = long2ip(unpack('V', hex2bin($hexIp))[1]);
+			} else {
+				$host = '[' . inet_ntop(implode('', array_map(fn($w) => strrev(hex2bin($w)), str_split($hexIp, 8)))) . ']';
+			}
+			$addresses["$host:$port"] = true;
+		}
+	}
+	return array_keys($addresses);
+}
+
+$addresses = getenv('PHP_FPM_HEALTHCHECK_ADDRESS')
+	? array_map('trim', explode(',', getenv('PHP_FPM_HEALTHCHECK_ADDRESS')))
+	: (listen_addresses($master) ?: ['127.0.0.1:9000']);
 
 function log_container(string $msg): void
 {
@@ -133,15 +172,26 @@ function probe(string $address, float $timeout): ?string
 			$off += 8 + $h['len'] + $h['pad'];
 		}
 	}
-	return sprintf('php-fpm neodpovedel do %g s', $timeout);
+	return sprintf('php-fpm neodpovedel do %.1f s', $timeout);
 }
 
-$error = probe($address, $timeout);
-if ($error === null) {
+// Spolecny limit pro vsechny pooly: postupne po $timeout by se s vic viseci pooly nevesly do
+// timeoutu HEALTHCHECK (8 s) a docker by kontrolu zabil driv, nez zapise pocitadlo.
+$deadline = microtime(true) + $timeout;
+$errors = [];
+foreach ($addresses as $address) {
+	$left = $deadline - microtime(true);
+	$error = $left > 0.1 ? probe($address, $left) : 'nezkontrolovano, vycerpany limit';
+	if ($error !== null) {
+		$errors[] = "$address: $error";
+	}
+}
+if (!$errors) {
 	@unlink($stateFile);
-	echo "ok\n";
+	echo 'ok (' . implode(', ', $addresses) . ")\n";
 	exit(0);
 }
+$error = implode('; ', $errors);
 
 // selhani: pocitadlo (a cas SIGTERM) v $stateFile - "<pocet> [<cas SIGTERM>]"
 $state = explode(' ', trim((string) @file_get_contents($stateFile)));

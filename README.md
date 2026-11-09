@@ -142,7 +142,8 @@ Projekt, ktery sablonu dal kopiruje, funguje taky - stejny pool nacteny dvakrat 
 ### Healthcheck a watchdog php-fpm (od revize 8)
 
 `-fpm` (stage `app`) ma `HEALTHCHECK` (`php-fpm-healthcheck`, kazdych 10 s): FastCGI
-pozadavek na prazdny skript `/usr/local/lib/monitoring/healthcheck.php` na `127.0.0.1:9000`.
+pozadavek na prazdny skript `/usr/local/lib/monitoring/healthcheck.php` na kazdy TCP port,
+na kterem FPM posloucha - vic poolu (`listen = 9000`, `listen = 9001`) se zkontroluje kazdy.
 Odpoved znamena, ze nejaky worker pozadavek prijal a dokoncil. Na `/status` se kontrola
 nepta - `pm.status_path` je v poolu projektu, ktery image nezapne (`php-fpm.d` prekryva
 mount), skript v image je ve vsech projektech. Jakakoli odpoved je zivy pool.
@@ -161,7 +162,7 @@ Nastaveni (env kontejneru, `env_file`):
 | `PHP_FPM_WATCHDOG` | `1` | `0` = jen hlasit unhealthy, nerestartovat |
 | `PHP_FPM_WATCHDOG_FAILURES` | `12` | pocet selhani v rade pred restartem (x 10 s) |
 | `PHP_FPM_HEALTHCHECK_TIMEOUT` | `5` | limit odpovedi v sekundach |
-| `PHP_FPM_HEALTHCHECK_ADDRESS` | `127.0.0.1:9000` | kde FPM posloucha (`listen` poolu) |
+| `PHP_FPM_HEALTHCHECK_ADDRESS` | porty FPM mastera | `host:port` carkou oddelene, misto automatickeho zjisteni |
 
 Kontejner bez FPM mastera (`-cli`, `-fpm` image spoustejici jiny proces) se nekontroluje.
 Jednotlive viseci pozadavky ma ukoncovat `request_terminate_timeout` v poolu projektu -
