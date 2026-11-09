@@ -36,13 +36,24 @@ function cmdline(string $pid): string
 	return str_replace("\0", ' ', (string) @file_get_contents("/proc/$pid/cmdline"));
 }
 
-// pid FPM mastera a workeru (titulek procesu nastavuje php-fpm sam)
+function ppid(string $pid): string
+{
+	$stat = (string) @file_get_contents("/proc/$pid/stat");
+	return explode(' ', substr($stat, strrpos($stat, ')') + 2))[1] ?? '0';
+}
+
+// pid FPM mastera a workeru (titulek procesu nastavuje php-fpm sam). Cerstve
+// forknuty worker ma chvili jeste titulek mastera, nez se prejmenuje na "pool" -
+// master je proto ten, jehoz rodic NENI php-fpm. Jinak by kontrola obcas vzala
+// worker, s jinym casem startu i jiny soubor pocitadla, a pocitadlo by se pri
+// spawnovani workeru (crash loop, pm dynamic/ondemand pod zatezi) nulovalo.
 $master = null;
 $workers = [];
 foreach (glob('/proc/[0-9]*') as $dir) {
 	$pid = basename($dir);
 	$cmd = cmdline($pid);
-	if (str_starts_with($cmd, 'php-fpm: master process')) {
+	if (str_starts_with($cmd, 'php-fpm: master process')
+		&& !str_starts_with(cmdline(ppid($pid)), 'php-fpm')) {
 		$master = $pid;
 	} elseif (str_starts_with($cmd, 'php-fpm: pool ')) {
 		$workers[] = (int) $pid;
