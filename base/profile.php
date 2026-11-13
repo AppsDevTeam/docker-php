@@ -25,7 +25,10 @@
 // profilovanim (soubor /tmp/php-profile existuje) - kdokoli zvenku by jinak mohl serveru
 // pridelavat praci.
 
-if (PHP_SAPI === 'cli' || !function_exists('xhprof_enable')) {
+// Skripty monitoringu v tomtez FPM (opcache-status.php, profile-status.php, healthcheck)
+// se neprofiluji - nejsou to pozadavky aplikace
+if (PHP_SAPI === 'cli' || !function_exists('xhprof_enable')
+	|| str_starts_with($_SERVER['SCRIPT_FILENAME'] ?? '', '/usr/local/lib/monitoring/')) {
 	return;
 }
 
