@@ -6,9 +6,16 @@
 // Zapnuti za behu, bez restartu (i na produkci "na chvilku"):
 //   docker exec <projekt>_php sh -c 'echo 0.05 > /tmp/php-profile'   # kazdy 20. pozadavek
 //   docker exec <projekt>_php rm /tmp/php-profile                     # vypnout
-// Soubor obsahuje podil profilovanych pozadavku (0 < podil <= 1). Vzorkovani: xhprof zpomali
-// profilovany pozadavek o desitky procent, vzorek 5 % zateze zvedne o ~1-2 %. /tmp je u projektu
-// tmpfs, restart kontejneru profilovani vypne sam.
+// Soubor obsahuje podil profilovanych pozadavku (0 < podil <= 1) a volitelne cas vyprseni
+// (unix timestamp, oddeleny mezerou; zapisuje ho `run.sh --php-profile` ze
+// server-management-scripts). Vzorkovani: xhprof zpomali profilovany pozadavek o desitky
+// procent, vzorek 5 % zateze zvedne o ~1-2 %. /tmp je u projektu tmpfs, restart kontejneru
+// profilovani vypne sam.
+//
+// Profilovani skonci SAMO nejpozdeji 24 h od zapsani souboru, i kdyz
+// ho nikdo nesmaze - zapomenute profilovani by jinak zvedalo zatez produkce navzdy. Kratsi
+// vyprseni v souboru ma prednost. Po vyprseni soubor zustava (worker ho nesmi mazat - patri
+// tomu, kdo ho zapsal), jen se ignoruje; nove zapsani (novy mtime) profilovani zase zapne.
 //
 // Vystup kazdeho profilovaneho pozadavku: souhrn casu po skupinach kodu (DB, Doctrine, Latte,
 // Nette, autoload, ...) pridany k citacum endpointu v /tmp/php-profile.d/<pid>.json (per worker,
@@ -36,7 +43,16 @@ $__profileRate = @file_get_contents('/tmp/php-profile');
 if ($__profileRate === false) {
 	return;
 }
-$__profileRate = (float) trim($__profileRate);
+// "<podil> [<vyprseni>]" - vyprselo = vypnuto (stejna logika v profile-status.php)
+[$__profileRate, $__profileExpires] = array_pad(preg_split('~\s+~', trim($__profileRate)), 2, null);
+$__profileExpires = min(
+	(int) @filemtime('/tmp/php-profile') + 24 * 3600,
+	$__profileExpires === null ? PHP_INT_MAX : (int) $__profileExpires,
+);
+if (time() > $__profileExpires) {
+	return;
+}
+$__profileRate = (float) $__profileRate;
 $__profileDetail = $_SERVER['HTTP_X_PROFILE'] ?? null;
 if (!is_string($__profileDetail) || !preg_match('~^[a-z0-9-]{1,40}$~', $__profileDetail)) {
 	$__profileDetail = null;

@@ -187,6 +187,14 @@ Hodnota je podil profilovanych pozadavku (0-1). xhprof zpomali profilovany pozad
 o desitky procent, vzorek 5 % tedy zvedne zatez o ~1-2 %. `/tmp` je u projektu tmpfs, restart
 kontejneru profilovani vypne sam.
 
+**Profilovani skonci samo nejpozdeji za 24 h** od zapsani souboru (od revize 10), i kdyz ho
+nikdo nesmaze - zapomenute profilovani by jinak zvedalo zatez produkce navzdy. Za podilem muze
+byt mezerou oddeleny cas vyprseni (unix timestamp), kratsi ma prednost:
+`echo "0.05 $(($(date +%s) + 3600))" > /tmp/php-profile` = hodina. Po vyprseni soubor zustava
+a jen se ignoruje (`enabled: false` v `profile-status.php`), nove zapsani profilovani zase zapne.
+Na serverech ADT to dela `./run.sh --php-profile <projekt> on [doba] [podil]` ze
+server-management-scripts (doba nejvys 24 h, navic na hostu casovac, ktery soubor smaze).
+
 Profilovany pozadavek pricte svuj cas k citacum **endpointu** (cesta s cisly nahrazenymi `{id}`,
 dlouhymi hexa retezci `{hash}` a Nette signalem `?do=`, napr. `/patient/{id}`, `/?do=shifts`)
 rozdeleny po **skupinach kodu**: `db` (PDO, mysqli), `doctrine`, `latte`, `nette_di`, `nette`,
@@ -194,8 +202,8 @@ rozdeleny po **skupinach kodu**: `db` (PDO, mysqli), `doctrine`, `latte`, `nette
 (ostatni knihovny), `php` (vestavene funkce). Nejvys `PROFILE_MAX_ENDPOINTS` (env, vychozi 100)
 ruznych endpointu, dalsi jdou do `other` - Prometheus neunese neomezene labely. Citace cte
 `/usr/local/lib/monitoring/profile-status.php` (monitoring-agent_phpfpm pres FastCGI, stejne
-jako opcache) a v Prometheu jsou jako `php_profile_*` - ktere endpointy berou nejvic CPU a cim.
-Zadne parametry ani data uzivatelu se neukladaji.
+jako opcache; vraci i `enabled`, `rate` a `expires`) a v Prometheu jsou jako `php_profile_*` -
+ktere endpointy berou nejvic CPU a cim. Zadne parametry ani data uzivatelu se neukladaji.
 
 Podrobny profil jednoho pozadavku (40 nejdrazsich funkci) pro rucni rozbor: hlavicka
 `X-Profile: <nazev>` (`[a-z0-9-]`) zapise `/tmp/php-profile-<nazev>.txt` v kontejneru - jen se
