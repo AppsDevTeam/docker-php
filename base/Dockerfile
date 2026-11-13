@@ -69,6 +69,16 @@ RUN if [ -f /usr/local/etc/php-fpm.conf ]; then \
 # pres FastCGI :9000). Mimo document root - nginx ho neserviruje.
 COPY opcache-status.php /usr/local/lib/monitoring/opcache-status.php
 
+# Profilovani pozadavku (xhprof) zapinatelne za behu souborem /tmp/php-profile - viz
+# profile.php a profile-status.php (souhrn pro monitoring). auto_prepend_file jen ve variante
+# -fpm (docker-fpm.ini ma jen ona; -cli a -supervisor prepend nemaji) - CLI procesy v -fpm
+# image (cron, consumery) skript nactou, ale ten v CLI hned skonci. Ini je v base.d (viz nize),
+# takze ho mount conf.d projektu neprekryje a ini projektu ho muze prepsat.
+COPY profile.php profile-status.php /usr/local/lib/monitoring/
+RUN if [ -f /usr/local/etc/php/conf.d/docker-fpm.ini ]; then \
+		printf '\n; profilovani pozadavku za behu (profile.php v image appsdevteam/php)\nauto_prepend_file=/usr/local/lib/monitoring/profile.php\n' >> /usr/local/etc/php/conf.d/docker-fpm.ini; \
+	fi
+
 # Ini z base image (zapnuti rozsireni, docker-fpm.ini) jsou v base.d, ne v conf.d - ten projekty
 # prekryvaji mountem a musely by pak rozsireni zapinat znovu ve svem ini. PHP prohledava base.d
 # pred conf.d, takze ini projektu ma posledni slovo. Projekt, ktery PHP_INI_SCAN_DIR nastavuje
@@ -89,7 +99,8 @@ COPY install-php-extensions /usr/local/bin/install-php-extensions
 # odstrani. Jinak by v image zbyvalo gcc/make (pouzitelne po pripadnem pruniku) a hlavicky
 # linux-libc-dev, ktere generuji CVE hlaseni proti kernelu, jenz v kontejneru vubec nebezi
 # (dodava ho host). Potomek si je wrapperem zase doinstaluje.
-RUN install-php-extensions intl opcache pdo_mysql sockets sodium zip
+# xhprof: profilovani pozadavku za behu (profile.php), vypnute nic nestoji.
+RUN install-php-extensions intl opcache pdo_mysql sockets sodium xhprof zip
 
 # Precte ext-* z composer.json a composer.lock projektu a nainstaluje je - viz komentar ve
 # skriptu. Spousti ho ONBUILD ve stagich app a supervisor.

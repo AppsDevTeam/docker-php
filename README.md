@@ -40,7 +40,8 @@ Obsahuje:
   chybove e-maily (adt/error-logger), bezna posta projektu patri do `adt/mailer`.
   Projekt `sendmail_path` nenastavuje (vychozi `/usr/sbin/sendmail -t -i` je dma)
   Spool je v `/tmp`, kontejner proto potrebuje zapisovatelny `/tmp` (u `read_only` tmpfs).
-- rozsireni `intl`, `opcache`, `pdo_mysql`, `sockets`, `sodium`, `zip`
+- rozsireni `intl`, `opcache`, `pdo_mysql`, `sockets`, `sodium`, `xhprof` (od revize 9, jen pro
+  profilovani nize), `zip`
 - `/usr/local/etc/php/php.ini` s vychozimi hodnotami: `opcache.interned_strings_buffer=32`
   a `opcache.memory_consumption=256` (PHP ma 8 a 128 MB, velkym aplikacim nestaci).
   Pamet opcache se zabira az pri zaplnovani, malym projektum vyssi limit nic nestoji.
@@ -48,6 +49,7 @@ Obsahuje:
   CVE-2026-109619. Projekt, ktery prubeh nahravani pouziva, si ho zapne ve svem `conf.d`.
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
+- profilovani pozadavku zapinatelne za behu (od revize 9) - viz Profilovani pozadavku nize
 - `HEALTHCHECK` php-fpm s watchdogem, ktery zaseknuty FPM restartuje (od revize 8, jen
   `-fpm`) - viz Healthcheck a watchdog php-fpm nize
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
@@ -168,6 +170,38 @@ Nastaveni (env kontejneru, `env_file`):
 Kontejner bez FPM mastera (`-cli`, `-fpm` image spoustejici jiny proces) se nekontroluje.
 Jednotlive viseci pozadavky ma ukoncovat `request_terminate_timeout` v poolu projektu -
 watchdog je pojistka pro pripad, kdy visi vsechny.
+
+### Profilovani pozadavku (od revize 9)
+
+Kazdy webovy pozadavek zacina `/usr/local/lib/monitoring/profile.php` (`auto_prepend_file`
+v `base.d/docker-fpm.ini`, jen varianta `-fpm`; v CLI skript hned skonci). Dokud v kontejneru neexistuje `/tmp/php-profile`, skript
+hned skonci (jedna kontrola existence souboru, bez merineho rozdilu proti image bez prependu).
+Profilovani se zapina **za behu, bez restartu**, i na produkci na chvilku:
+
+```bash
+docker exec <projekt>_php sh -c 'echo 0.05 > /tmp/php-profile'   # kazdy 20. pozadavek
+docker exec <projekt>_php rm /tmp/php-profile                     # vypnout
+```
+
+Hodnota je podil profilovanych pozadavku (0-1). xhprof zpomali profilovany pozadavek
+o desitky procent, vzorek 5 % tedy zvedne zatez o ~1-2 %. `/tmp` je u projektu tmpfs, restart
+kontejneru profilovani vypne sam.
+
+Profilovany pozadavek pricte svuj cas k citacum **endpointu** (cesta s cisly nahrazenymi `{id}`,
+dlouhymi hexa retezci `{hash}` a Nette signalem `?do=`, napr. `/patient/{id}`, `/?do=shifts`)
+rozdeleny po **skupinach kodu**: `db` (PDO, mysqli), `doctrine`, `latte`, `nette_di`, `nette`,
+`autoload`, `io` (curl, sockety, soubory), `app` (`App\`), `adt` (`ADT\`), `tracy`, `vendor`
+(ostatni knihovny), `php` (vestavene funkce). Nejvys `PROFILE_MAX_ENDPOINTS` (env, vychozi 100)
+ruznych endpointu, dalsi jdou do `other` - Prometheus neunese neomezene labely. Citace cte
+`/usr/local/lib/monitoring/profile-status.php` (monitoring-agent_phpfpm pres FastCGI, stejne
+jako opcache) a v Prometheu jsou jako `php_profile_*` - ktere endpointy berou nejvic CPU a cim.
+Zadne parametry ani data uzivatelu se neukladaji.
+
+Podrobny profil jednoho pozadavku (40 nejdrazsich funkci) pro rucni rozbor: hlavicka
+`X-Profile: <nazev>` (`[a-z0-9-]`) zapise `/tmp/php-profile-<nazev>.txt` v kontejneru - jen se
+zapnutym profilovanim, jinak by kdokoli zvenku mohl serveru pridelavat praci.
+
+Projekt s vlastnim `auto_prepend_file` (v `conf.d` nebo poolu) image prepise a profilovani nema.
 
 ## Composer
 
