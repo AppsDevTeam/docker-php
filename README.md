@@ -35,7 +35,8 @@ Starsi revize se uz nesestavuji, zustanou zmrazene, dokud projekt neprejde na no
 Obsahuje:
 
 - bez composeru, gitu a unzipu (od revize 5, ma je jen `-composer`) - viz Composer nize
-- `eoh` (od revize 6 pres `/dev/tcp` bashe - projekt uz nedoinstalovava netcat) a `cachetool`
+- `cachetool` (`eoh` byl do revize 10 - protejsek `eohd` na hostu poslouchal na vsech rozhranich
+  a prikazy poustel pres eval, adt/make 1.1 ho uz nespousti)
 - `dma` jako `sendmail` - `mail()` doruci primo na MX prijemce, bez API a klice. Jen na
   chybove e-maily (adt/error-logger), bezna posta projektu patri do `adt/mailer`.
   Projekt `sendmail_path` nenastavuje (vychozi `/usr/sbin/sendmail -t -i` je dma)

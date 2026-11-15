@@ -44,10 +44,6 @@ RUN sed -i 's|^#\?SPOOLDIR.*|SPOOLDIR /tmp|' /etc/dma/dma.conf \
 && grep -qx 'SPOOLDIR /tmp' /etc/dma/dma.conf \
 && chmod 0644 /etc/dma/dma.conf
 
-# Helper pro otevirani souboru v editoru na hostovi (lokalni vyvoj) - viz komentar ve skriptu.
-# spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
-COPY eoh /usr/local/bin/eoh
-
 # Reset opcache PHP-FPM po deployi (`cachetool opcache:reset` v makefile projektu).
 RUN curl --fail -sOL https://gordalina.github.io/cachetool/downloads/cachetool-9.2.1.phar && chmod +x cachetool-9.2.1.phar && mv cachetool-9.2.1.phar /usr/local/bin/cachetool
 
