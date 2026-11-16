@@ -17,11 +17,30 @@
 #
 # Rozsireni, ktera PHP uz ma (vestavena nebo z base image), se preskoci.
 #
-# Ve -fpm, -cli a -supervisor ho spousti ONBUILD pri buildu image projektu (viz stage app
-# v Dockerfile), projekt ho sam nevola. Rucne:
-#   COPY composer.json composer.lock ./
-#   RUN install-composer-extensions [--dev] composer.json composer.lock
+# Rezimy (od revize 12 Dockerfile projektu ve dvou stagich, viz README):
+#   install-composer-extensions [--dev] <composer.json> [<composer.lock>]   nacte a nainstaluje
+#   install-composer-extensions --list [--dev] <composer.json> [<composer.lock>]
+#       jen vypise chybejici rozsireni (serazena, po radcich) - do souboru, ktery dalsi stage
+#       prevezme pres COPY --from: vrstva s instalaci je pak v cache, dokud se nezmeni seznam,
+#       ne pri kazde zmene composer.lock (bump knihovny)
+#   install-composer-extensions --install <soubor se seznamem>             nainstaluje seznam
 set -e
+
+MODE=install
+if [ "$1" = "--list" ]; then
+	MODE=list
+	shift
+elif [ "$1" = "--install" ]; then
+	[ -n "$2" ] && [ -f "$2" ] || { echo "Pouziti: install-composer-extensions --install <soubor se seznamem>" >&2; exit 1; }
+	# shellcheck disable=SC2046
+	EXTENSIONS=$(tr '\n' ' ' < "$2")
+	if [ -z "$(echo "$EXTENSIONS" | tr -d ' ')" ]; then
+		echo "Zadne rozsireni k instalaci ($2 je prazdny)."
+		exit 0
+	fi
+	# shellcheck disable=SC2086
+	exec install-php-extensions $EXTENSIONS
+fi
 
 DEV=0
 if [ "$1" = "--dev" ]; then
@@ -30,7 +49,7 @@ if [ "$1" = "--dev" ]; then
 fi
 
 if [ -z "$1" ]; then
-	echo "Pouziti: install-composer-extensions [--dev] <composer.json> [<composer.lock>]" >&2
+	echo "Pouziti: install-composer-extensions [--list] [--dev] <composer.json> [<composer.lock>] | --install <seznam>" >&2
 	exit 1
 fi
 
@@ -70,12 +89,21 @@ foreach (array_merge(get_loaded_extensions(), get_loaded_extensions(true)) as $n
 }
 // Nazvy, ktere install-php-extensions zna jinak nez composer.
 $installerNames = ["zend-opcache" => "opcache"];
+$missing = [];
 foreach (array_keys($extensions) as $extension) {
 	if (!isset($loaded[$extension])) {
-		echo $installerNames[$extension] ?? $extension, " ";
+		$missing[] = $installerNames[$extension] ?? $extension;
 	}
 }
+// Serazene a bez duplicit: stejna sada = stejny vystup = stejna vrstva v cache (--list)
+sort($missing);
+echo implode("\n", array_unique($missing));
 ' "$DEV" "$@")
+
+if [ "$MODE" = list ]; then
+	[ -z "$EXTENSIONS" ] || echo "$EXTENSIONS"
+	exit 0
+fi
 
 if [ -z "$EXTENSIONS" ]; then
 	echo "Vsechna ext-* z $* uz PHP ma, nic k instalaci."

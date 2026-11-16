@@ -56,11 +56,22 @@ Obsahuje:
 - bez gcc/make a hlavicek (`$PHPIZE_DEPS` odstraneny), s aktualnimi bezpecnostnimi
   opravami Debianu (rebuild kazdy tyden)
 
-Pouziti v projektu - rozsireni z `ext-*` projektu se nainstaluji sama (viz Rozsireni
+Pouziti v projektu - rozsireni z `ext-*` projektu (composer.json) a vsech balicku
+(composer.lock) instaluje Dockerfile projektu ve dvou stagich (od revize 12, viz Rozsireni
 projektu nize), `composer.json` a `composer.lock` musi byt v build contextu:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-8-20261109-fpm
+ARG PHP_IMAGE
+# seznam chybejicich rozsireni - samostatna stage, aby instalace nize zustala v cache,
+# dokud se nezmeni seznam (ne pri kazde zmene composer.lock)
+FROM appsdevteam/php:${PHP_IMAGE}-fpm AS extensions
+ARG DEV=0
+COPY composer.json composer.lock ./
+RUN install-composer-extensions --list $([ "$DEV" = 1 ] && echo --dev) composer.json composer.lock > /extensions
+
+FROM appsdevteam/php:${PHP_IMAGE}-fpm
+COPY --from=extensions /extensions /tmp/extensions
+RUN install-composer-extensions --install /tmp/extensions
 ```
 
 Rozsireni mimo `ext-*` (napr. pro nastroj, ktery composer nezna) projekt doinstaluje sam:
@@ -86,26 +97,30 @@ projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) 
 drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo
 mount) - projekt je muze ve svem `conf.d` prepsat.
 
-### Rozsireni projektu (`ONBUILD`, od revize 7)
+### Rozsireni projektu (od revize 7, dve stage od revize 12)
 
-`-fpm`, `-cli` a `-supervisor` maji `ONBUILD`: pri buildu image projektu (hned za jeho `FROM`)
-zkopiruji `composer.json` a `composer.lock` z build contextu a `install-composer-extensions`
-nainstaluje vsechna `ext-*`, ktera vyzaduje projekt (composer.json) nebo kterykoli
-nainstalovany balicek (composer.lock). Rozsireni, ktera PHP uz ma, se preskoci. Projekt je
-tak nevyjmenovava na dvou mistech a na instalaci nemuze zapomenout.
+`install-composer-extensions` nainstaluje vsechna `ext-*`, ktera vyzaduje projekt
+(composer.json) nebo kterykoli nainstalovany balicek (composer.lock). Rozsireni, ktera PHP
+uz ma, se preskoci. Projekt je tak nevyjmenovava na dvou mistech a na instalaci nemuze
+zapomenout.
 
+- Revize 7-11 to delaly `ONBUILD` hned za `FROM` projektu. Jenze `COPY composer.json
+  composer.lock` zahodil vrstvu s kompilaci rozsireni pri kazde zmene locku - bump libovolne
+  knihovny znamenal znovu kompilovat napr. imagick (3 minuty v kazdem jobu CI i na serveru).
+- Od revize 12 `ONBUILD` neni a Dockerfile projektu ma dve stage (priklad vyse):
+  `--list` v prvni vypise chybejici rozsireni (serazena, po radcich) do souboru, druha ho
+  prevezme `COPY --from` a `--install` nainstaluje. `COPY --from` je v cache podle obsahu
+  souboru, takze vrstva s instalaci se prestavi jen pri zmene seznamu rozsireni.
 - Oba soubory musi byt v build contextu, jinak build spadne (`"/composer.lock": not found`) -
   zamerne, kontrola rozsireni se nesmi tise vynechat. Context projektu byva samostatny
-  adresar jen pro Dockerfile, soubory do nej projekt kopiruje pred buildem.
-- Bez build argu se cte jen `require` / `packages` (produkcni image). Build arg `DEV=1`
-  prida i `require-dev` / `packages-dev`, obdobne jako `composer install` vs.
-  `composer install --no-dev`. Projekt si `ARG DEV` deklarovat nemusi, staci ho predat
-  (`--build-arg DEV=1`, `build.args` v compose).
-- `ONBUILD` se provede jen u prime potomka (image projektu), ne u image, ktery dedi z nej.
-- Projekt, ktery instalaci jeste vola sam (`COPY composer.json composer.lock` +
-  `RUN install-composer-extensions`, revize 6 a starsi), funguje dal - podruhe se nic
-  neinstaluje. Radky muze smazat.
-- `-composer` `ONBUILD` nema (jeden image pro vsechny projekty, nebuildi se).
+  adresar jen pro Dockerfile, soubory do nej projekt kopiruje pred buildem (adt/make
+  `_docker-common`, deploy recept adt/docker-deployer, adt/ci `.setup`).
+- Bez `--dev` se cte jen `require` / `packages` (produkcni image). `--dev` prida i
+  `require-dev` / `packages-dev`, obdobne jako `composer install` vs. `composer install
+  --no-dev` - build arg `DEV=1` v prikladu (`--build-arg DEV=1`, `build.args` v compose).
+- Projekt na revizi 11 a starsi s holym `FROM` (ONBUILD) funguje dal, dokud nepovysi
+  `PHP_IMAGE`; s revizi 12 by bez dvou stagi rozsireni chybela a web spadl az za behu.
+- `-composer` rozsireni projektu nema (jeden image pro vsechny projekty, nebuildi se).
 
 ### Ini rozsireni (`base.d`, od revize 6)
 
@@ -228,12 +243,8 @@ rozsireni nahrazuje runtime image projektu: `install-composer-extensions` nad co
 locku by rozsireni vyzadovane jen zavislosti chybelo a projevilo se az fatalem za behu.
 Ignorovana rozsireni composer vynecha i z `vendor/composer/platform_check.php`.
 
-Instalaci rozsireni dela `ONBUILD` (viz Rozsireni projektu vyse), Dockerfile projektu je jen
-`FROM`:
-
-```dockerfile
-FROM appsdevteam/php:8.5.12-8-20261109-fpm
-```
+Instalaci rozsireni dela Dockerfile projektu ve dvou stagich pres `install-composer-extensions`
+(viz Rozsireni projektu vyse).
 
 ```yaml
   composer:

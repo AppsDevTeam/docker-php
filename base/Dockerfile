@@ -13,9 +13,9 @@
 # posledni = composer). Lokalne:
 #   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli --target app base
 #
-# -fpm, -cli a -supervisor pri buildu projektu (FROM) samy nainstaluji rozsireni podle
-# composer.json a composer.lock projektu (ONBUILD, viz stage app) - projekt je musi mit
-# v build contextu.
+# Rozsireni podle composer.json a composer.lock projektu instaluje Dockerfile projektu
+# ve dvou stagich pres install-composer-extensions --list / --install (viz stage app
+# a README) - oba soubory musi mit v build contextu.
 #
 # Co sem NEPATRI: konfigurace v /usr/local/etc/php/conf.d a /usr/local/etc/php-fpm.d.
 # Projekty oba adresare v docker-compose.yml prekryvaji mountem, takze cokoli, co by sem
@@ -99,7 +99,7 @@ COPY install-php-extensions /usr/local/bin/install-php-extensions
 RUN install-php-extensions intl opcache pdo_mysql sockets sodium xhprof zip
 
 # Precte ext-* z composer.json a composer.lock projektu a nainstaluje je - viz komentar ve
-# skriptu. Spousti ho ONBUILD ve stagich app a supervisor.
+# skriptu. Vola ho Dockerfile projektu (--list v prvni stagi, --install ve druhe).
 COPY install-composer-extensions /usr/local/bin/install-composer-extensions
 
 # Bezpecnostni aktualizace VSECH balicku. Tag base image je pripnuty, ale Debian vydava
@@ -111,16 +111,12 @@ RUN apt-get update && apt-get upgrade -y \
 && rm -rf /var/lib/apt/lists/*
 
 
-# Varianty -fpm a -cli: runtime + rozsireni projektu. ONBUILD se provede az pri buildu image
-# projektu (hned za jeho FROM): nainstaluje ext-* z composer.json a composer.lock, takze
-# projekt nemusi rozsireni vyjmenovavat ani instalaci zapinat ve svem Dockerfile. Lock je
-# nutny - composer image ext-* nekontroluje (COMPOSER_IGNORE_PLATFORM_REQ ve stagi composer),
-# rozsireni vyzadovane jen zavislosti by jinak chybelo a projevilo se az fatalem za behu.
-# Oba soubory musi byt v build contextu projektu, jinak build spadne - zamerne, kontrola
-# rozsireni se nesmi tise vynechat. DEV=1 (build arg projektu, lokalni vyvoj) prida i ext-*
-# z require-dev/packages-dev.
-# ONBUILD se spousti i u stagi stejneho Dockerfile, ktere z teto stage dedi - proto je
-# v samostatne koncove stagi a ne v runtime, ze ktereho dedi supervisor a composer.
+# Varianty -fpm a -cli: runtime + healthcheck. Rozsireni projektu (ext-* z composer.json
+# a composer.lock) si instaluje Dockerfile projektu ve dvou stagich pres
+# install-composer-extensions --list / --install (viz README) - do revize 11 to delal ONBUILD
+# hned za FROM, jenze COPY composer.lock zahodil vrstvu s kompilaci rozsireni pri kazde
+# zmene locku (bump libovolne knihovny = imagick se kompiloval znovu, minuty v kazdem jobu CI).
+# Dve stage to resi: seznam rozsireni jde dal pres COPY --from, a ta je v cache podle obsahu.
 FROM runtime AS app
 # Healthcheck php-fpm + watchdog: zaseknuty FPM (2 min bez odpovedi) restartuje - viz
 # komentar ve skriptu. Jen tady: -supervisor a -composer FPM nemaji, v -cli kontrola
@@ -130,9 +126,6 @@ FROM runtime AS app
 COPY php-fpm-healthcheck /usr/local/bin/php-fpm-healthcheck
 COPY healthcheck.php /usr/local/lib/monitoring/healthcheck.php
 HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 CMD ["php-fpm-healthcheck"]
-ONBUILD ARG DEV=0
-ONBUILD COPY composer.json composer.lock ./
-ONBUILD RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
 
 
 # Varianta -supervisor: runtime (s VARIANT=cli) + supervisor pro consumery. Supervisor je python
@@ -143,16 +136,12 @@ FROM runtime AS supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
 && rm -rf /var/lib/apt/lists/*
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
-# Rozsireni projektu jako u -fpm a -cli, viz stage app.
-ONBUILD ARG DEV=0
-ONBUILD COPY composer.json composer.lock ./
-ONBUILD RUN install-composer-extensions $([ "$DEV" = "1" ] && echo --dev) composer.json composer.lock
 
 
 # Varianta -composer: runtime (s VARIANT=cli) + composer. Jeden image pro vsechny projekty -
 # rozsireni projektu v nem nejsou, proto composer ignoruje ext-* pozadavky
 # (COMPOSER_IGNORE_PLATFORM_REQ nize). Ze ma runtime vsechna potrebna rozsireni, zarucuje
-# ONBUILD ve stagich app a supervisor - viz README.
+# install-composer-extensions v Dockerfile projektu (composer.lock) - viz README.
 FROM runtime AS composer
 
 # git kvuli VCS repozitarum v composer.json a verzi root balicku, unzip pro rozbalovani archivu.
