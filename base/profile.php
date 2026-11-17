@@ -28,9 +28,10 @@
 // (PROFILE_MAX_ENDPOINTS), dalsi jdou do "other" - Prometheus neunese neomezene labely.
 //
 // Podrobny profil jednoho pozadavku (nejdrazsi funkce) pro rucni rozbor: hlavicka
-// X-Profile: <nazev> zapise /tmp/php-profile-<nazev>.txt v kontejneru. Jen se zapnutym
-// profilovanim (soubor /tmp/php-profile existuje) - kdokoli zvenku by jinak mohl serveru
-// pridelavat praci.
+// X-Profile: <nazev> prepise /tmp/php-profile-<nazev>.txt v kontejneru - jen se zapnutym
+// profilovanim a jen soubor, ktery uz existuje (zalozi ho ten, kdo profilovani zapnul, nazev
+// aspon 16 znaku = tajemstvi). Zvenku tak nikdo nevynuti profilovani kazdeho pozadavku ani
+// nezaplni /tmp (tmpfs = pamet) libovolnym poctem souboru.
 
 // Skripty monitoringu v tomtez FPM (opcache-status.php, profile-status.php, healthcheck)
 // se neprofiluji - nejsou to pozadavky aplikace
@@ -54,7 +55,11 @@ if (time() > $__profileExpires) {
 }
 $__profileRate = (float) $__profileRate;
 $__profileDetail = $_SERVER['HTTP_X_PROFILE'] ?? null;
-if (!is_string($__profileDetail) || !preg_match('~^[a-z0-9-]{1,40}$~', $__profileDetail)) {
+if (
+	!is_string($__profileDetail)
+	|| !preg_match('~^[a-z0-9-]{16,40}$~', $__profileDetail)
+	|| !is_file('/tmp/php-profile-' . $__profileDetail . '.txt')
+) {
 	$__profileDetail = null;
 }
 if ($__profileDetail === null && ($__profileRate <= 0 || mt_rand() / mt_getrandmax() >= $__profileRate)) {

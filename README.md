@@ -222,8 +222,17 @@ jako opcache; vraci i `enabled`, `rate` a `expires`) a v Prometheu jsou jako `ph
 ktere endpointy berou nejvic CPU a cim. Zadne parametry ani data uzivatelu se neukladaji.
 
 Podrobny profil jednoho pozadavku (40 nejdrazsich funkci) pro rucni rozbor: hlavicka
-`X-Profile: <nazev>` (`[a-z0-9-]`) zapise `/tmp/php-profile-<nazev>.txt` v kontejneru - jen se
-zapnutym profilovanim, jinak by kdokoli zvenku mohl serveru pridelavat praci.
+`X-Profile: <nazev>` prepise `/tmp/php-profile-<nazev>.txt` v kontejneru - jen se zapnutym
+profilovanim a jen soubor, ktery uz existuje. Nazev (`[a-z0-9-]`, 16-40 znaku) je tajemstvi
+toho, kdo profilovani zapnul: zvenku tak nikdo nevynuti profilovani kazdeho pozadavku ani nezaplni
+`/tmp` (tmpfs) soubory.
+
+```bash
+name=$(openssl rand -hex 8)
+docker exec <projekt>_php touch /tmp/php-profile-$name.txt
+curl -H "X-Profile: $name" https://<domena>/...
+docker exec <projekt>_php cat /tmp/php-profile-$name.txt
+```
 
 Projekt s vlastnim `auto_prepend_file` (v `conf.d` nebo poolu) image prepise a profilovani nema.
 
