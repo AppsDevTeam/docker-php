@@ -45,7 +45,13 @@ RUN sed -i 's|^#\?SPOOLDIR.*|SPOOLDIR /tmp|' /etc/dma/dma.conf \
 && chmod 0644 /etc/dma/dma.conf
 
 # Reset opcache PHP-FPM po deployi (`cachetool opcache:reset` v makefile projektu).
-RUN curl --fail -sOL https://gordalina.github.io/cachetool/downloads/cachetool-9.2.1.phar && chmod +x cachetool-9.2.1.phar && mv cachetool-9.2.1.phar /usr/local/bin/cachetool
+# Stahovane nastroje jsou pinovane na verzi a SHA256 - podstrceny soubor (prevzaty ucet, upstream)
+# build zastavi misto toho, aby se dostal do image vsech projektu. Update = nova verze i SHA256.
+ARG CACHETOOL_VERSION=9.2.1
+ARG CACHETOOL_SHA256=099ce804cf12849dbc32bb2523d782acba676e6afddcf0a32c2cb398f5a21d16
+RUN curl --fail -sSL https://gordalina.github.io/cachetool/downloads/cachetool-${CACHETOOL_VERSION}.phar -o /usr/local/bin/cachetool \
+&& echo "${CACHETOOL_SHA256}  /usr/local/bin/cachetool" | sha256sum -c - \
+&& chmod +x /usr/local/bin/cachetool
 
 # Vychozi ini hodnoty (velikosti bufferu opcache) - viz komentar v souboru.
 COPY php.ini /usr/local/etc/php/php.ini
@@ -87,7 +93,10 @@ RUN mkdir /usr/local/etc/php/base.d \
 # Skutecny mlocati skript je v /usr/local/lib, v PATH je wrapper (viz install-php-extensions
 # vedle), ktery kolem nej doinstaluje a zase odstrani $PHPIZE_DEPS a ini novych rozsireni
 # presune do base.d.
-RUN curl --fail -sSL https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions -o /usr/local/lib/install-php-extensions \
+ARG INSTALL_PHP_EXTENSIONS_VERSION=2.13.2
+ARG INSTALL_PHP_EXTENSIONS_SHA256=27fa8d80bd4e22feb9ddcadff1ca40c8f3e8ea942eb2dd8f446ed1afd2f2f0ab
+RUN curl --fail -sSL https://github.com/mlocati/docker-php-extension-installer/releases/download/${INSTALL_PHP_EXTENSIONS_VERSION}/install-php-extensions -o /usr/local/lib/install-php-extensions \
+&& echo "${INSTALL_PHP_EXTENSIONS_SHA256}  /usr/local/lib/install-php-extensions" | sha256sum -c - \
 && chmod +x /usr/local/lib/install-php-extensions
 # spustitelny je uz v gitu - COPY prava zachova (--chmod by vyzadoval BuildKit)
 COPY install-php-extensions /usr/local/bin/install-php-extensions
@@ -145,7 +154,8 @@ CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
 FROM runtime AS composer
 
 # git kvuli VCS repozitarum v composer.json a verzi root balicku, unzip pro rozbalovani archivu.
-COPY --from=composer/composer:2-bin /composer /usr/local/bin/composer
+# Konkretni verze a digest - plovouci 2-bin by kazdy build dal jiny composer (a kompromitovany tag ho podstrcil)
+COPY --from=composer/composer:2.11.2-bin@sha256:269d47ef954e254227bccb35e3e40f642756abee44dded405e1fbb6f5e52af0c /composer /usr/local/bin/composer
 RUN apt-get update && apt-get install -y --no-install-recommends git unzip \
 && rm -rf /var/lib/apt/lists/*
 
