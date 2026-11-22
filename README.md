@@ -4,20 +4,20 @@
 
 Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`. Varianty:
 
-- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.27-8-fpm` /
-  `8.5.12-8-fpm`.
+- `-fpm` - web (php-fpm). Tagy `8.4-fpm` / `8.5-fpm`, plovouci podle revize `8.4.28-8-fpm` /
+  `8.5.13-8-fpm`.
 - `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
-  podle revize `8.4.27-8-cli` / `8.5.12-8-cli`. Obsahem stejne jako `-fpm`.
+  podle revize `8.4.28-8-cli` / `8.5.13-8-cli`. Obsahem stejne jako `-fpm`.
 - `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
   `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
-  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.27-8-supervisor` /
-  `8.5.12-8-supervisor`.
+  `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.28-8-supervisor` /
+  `8.5.13-8-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`
-  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.27-8-composer` /
-  `8.5.12-8-composer`.
+  (viz Composer nize). Tagy `8.4-composer` / `8.5-composer`, plovouci podle revize `8.4.28-8-composer` /
+  `8.5.13-8-composer`.
 
 Kazdy build ma navic neprepisovatelny tag s datem buildu (UTC):
-`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.27-8-20261109-fpm`. Ten je
+`<verze PHP>-<revize>-<YYYYMMDD>-<varianta>`, napr. `8.4.28-8-20261109-fpm`. Ten je
 doporuceny - jen u nej je z nazvu jasne, co v image je, a dva buildy projektu (dva hosty,
 CI a server) dostanou stejny obsah. `<verze PHP>-<revize>-<varianta>` se pri kazdem buildu
 prepise (obsahuje vzdy posledni build), stejne jako `<minor>-<varianta>`. V jeden den vznika
@@ -77,7 +77,7 @@ RUN install-composer-extensions --install /tmp/extensions
 Rozsireni mimo `ext-*` (napr. pro nastroj, ktery composer nezna) projekt doinstaluje sam:
 
 ```dockerfile
-FROM appsdevteam/php:8.5.12-8-20261109-fpm
+FROM appsdevteam/php:8.5.13-8-20261109-fpm
 RUN install-php-extensions imagick
 ```
 
@@ -86,7 +86,7 @@ u consumeru nastavi na `supervisor`. Rozsireni projektu tak dostanou oba image s
 
 ```dockerfile
 ARG VARIANT=fpm
-FROM appsdevteam/php:8.5.12-8-20261109-${VARIANT}
+FROM appsdevteam/php:8.5.13-8-20261109-${VARIANT}
 ```
 
 `install-php-extensions` je wrapper: build zavislosti si sam doinstaluje a po kompilaci
@@ -257,7 +257,7 @@ Instalaci rozsireni dela Dockerfile projektu ve dvou stagich pres `install-compo
 
 ```yaml
   composer:
-    image: appsdevteam/php:8.5.12-8-20261109-composer   # stejny tag jako runtime
+    image: appsdevteam/php:8.5.13-8-20261109-composer   # stejny tag jako runtime
     profiles: ["tools"]
     volumes:
       - ${PROJECT_ROOT}:/var/www/html
@@ -272,8 +272,8 @@ nativni build.
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=fpm --target app --push \
-  -t appsdevteam/php:8.5.12-8-fpm -t appsdevteam/php:8.5-fpm base
+  --build-arg PHP_VERSION=8.5.13 --build-arg VARIANT=fpm --target app --push \
+  -t appsdevteam/php:8.5.13-8-fpm -t appsdevteam/php:8.5-fpm base
 ```
 
 Varianta `-cli` = `--build-arg VARIANT=cli --target app`, `-supervisor` =

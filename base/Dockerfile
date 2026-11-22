@@ -11,7 +11,7 @@
 # Verze PHP a varianta se predavaji z workflow (.github/workflows/base.yml), verze je
 # pripnuta na patch kvuli reprodukovatelnosti. Stage se vybira --target (bez nej vznikne
 # posledni = composer). Lokalne:
-#   docker build --build-arg PHP_VERSION=8.5.12 --build-arg VARIANT=cli --target app base
+#   docker build --build-arg PHP_VERSION=8.5.13 --build-arg VARIANT=cli --target app base
 #
 # Rozsireni podle composer.json a composer.lock projektu instaluje Dockerfile projektu
 # ve dvou stagich pres install-composer-extensions --list / --install (viz stage app
