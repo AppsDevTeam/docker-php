@@ -48,6 +48,10 @@ Obsahuje:
   Pamet opcache se zabira az pri zaplnovani, malym projektum vyssi limit nic nestoji.
   Dale `session.upload_progress.enabled=0` (od revize 4) - session lifecycle RCE,
   CVE-2026-109619. Projekt, ktery prubeh nahravani pouziva, si ho zapne ve svem `conf.d`.
+  A `memory_hard_limit_percent=800` - prekroceni memory_limit uvnitr jedne interni funkce
+  (PDO `fetchAll()` velkeho vysledku) PHP od 8.4.27/8.5.12 nad hard limitem (vychozi 2x)
+  ukonci bez zalogovani chyby (`_exit(137)`, nginx 502), s 8x skonci beznou chybou
+  "Allowed memory size", kterou zaloguje Tracy.
 - `/usr/local/lib/monitoring/opcache-status.php` - stav opcache pro monitoring
   (`monitoring-agent_phpfpm` v server-management-scripts)
 - profilovani pozadavku zapinatelne za behu (od revize 9) - viz Profilovani pozadavku nize
