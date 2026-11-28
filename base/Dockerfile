@@ -56,6 +56,12 @@ RUN curl --fail -sSL https://gordalina.github.io/cachetool/downloads/cachetool-$
 # Vychozi ini hodnoty (velikosti bufferu opcache) - viz komentar v souboru.
 COPY php.ini /usr/local/etc/php/php.ini
 
+# SBOM se samotnym PHP: base image ho kompiluje ze zdrojaku, v databazi baliku neni a trivy ani
+# jiny skener o nem bez tohohle souboru nevi. Purl typu bitnami schvalne - CVE PHP trivy paruje
+# jen proti Bitnami vulndb (generic purl nenajde nic). Verze z bezici binarky, ne z ARG.
+RUN mkdir -p /usr/local/share/sbom \
+&& php -r 'echo json_encode(["bomFormat" => "CycloneDX", "specVersion" => "1.5", "version" => 1, "components" => [["type" => "application", "name" => "php", "version" => PHP_VERSION, "purl" => "pkg:bitnami/php@" . PHP_VERSION, "bom-ref" => "pkg:bitnami/php@" . PHP_VERSION]]], JSON_UNESCAPED_SLASHES);' > /usr/local/share/sbom/php.cdx.json
+
 # Pool podle stage: krome *.conf nacte php-fpm i php-fpm.d/default.${STAGE}.conf.template
 # (konvence projektu, sablona z config/docker). Projekt tak nemusi pri startu kopirovat
 # sablonu na *.conf a do mountu php-fpm.d nic nezapisuje. ${STAGE} rozvine php-fpm

@@ -27,7 +27,9 @@ tag ma, preskoci (datovy tag se neprepisuje).
 
 Bezpecnostni opravy Debianu prinasi tydenni rebuild (pondeli). Projekt na datovem tagu je
 dostane vedomym bumpem data - signalem je audit image (trivy apod.), ktery zacne hlasit
-opravitelnou zranitelnost.
+opravitelnou zranitelnost. Plati i pro samotne PHP: image nese SBOM
+`/usr/local/share/sbom/php.cdx.json` (`pkg:bitnami/php@<verze>`), takze `trivy image` hlasi CVE
+PHP opravene v novejsim patchi - oprava je bump verze v matrixu workflow.
 
 Revize (`REVISION` ve workflow) se zvysuje pri zmene image, ktera muze rozbit projekt
 (odebrany nastroj, jine chovani) - tydenni rebuild s bezpecnostnimi opravami ji nemeni.
