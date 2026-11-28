@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
 
 env:
-  REVISION: 13
+  REVISION: 14
 
 jobs:
   # Datum se pocita jednou za run: kazdy job matrixu by si ho jinak urcil sam a build

@@ -16,8 +16,9 @@ apt-get update
 # shellcheck disable=SC2086
 apt-get install -y --no-install-recommends $PHPIZE_DEPS
 
+# Bez runtime.d (disable_functions) - skript mlocati spousti procesy i z PHP
 status=0
-/usr/local/lib/install-php-extensions "$@" || status=$?
+PHP_INI_SCAN_DIR="$PHP_INI_DIR/base.d" /usr/local/lib/install-php-extensions "$@" || status=$?
 
 for ini in "$PHP_INI_DIR"/conf.d/*.ini; do
 	if [ -e "$ini" ]; then mv "$ini" "$PHP_INI_DIR/base.d/"; fi

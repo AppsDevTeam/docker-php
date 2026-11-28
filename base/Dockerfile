@@ -62,6 +62,22 @@ COPY php.ini /usr/local/etc/php/php.ini
 RUN mkdir -p /usr/local/share/sbom \
 && php -r 'echo json_encode(["bomFormat" => "CycloneDX", "specVersion" => "1.5", "version" => 1, "components" => [["type" => "application", "name" => "php", "version" => PHP_VERSION, "purl" => "pkg:bitnami/php@" . PHP_VERSION, "bom-ref" => "pkg:bitnami/php@" . PHP_VERSION]]], JSON_UNESCAPED_SLASHES);' > /usr/local/share/sbom/php.cdx.json
 
+# Globalni nastaveni a pool [app] (php-fpm.base.conf, od revize 14) pred php-fpm.d projektu.
+# Pooly oficialniho image (www.conf, zz-docker.conf) pryc - [www] na portu 9000 by s [app]
+# kolidoval. Velikost poolu a revalidace opcache z prostredi kontejneru, tady vychozi hodnoty.
+COPY php-fpm.base.conf /usr/local/etc/php-fpm.base.conf
+ENV PHP_FPM_PM=dynamic \
+	PHP_FPM_MAX_CHILDREN=5 \
+	PHP_FPM_START_SERVERS=2 \
+	PHP_FPM_MIN_SPARE_SERVERS=1 \
+	PHP_FPM_MAX_SPARE_SERVERS=3 \
+	PHP_OPCACHE_VALIDATE_TIMESTAMPS=0
+RUN if [ -f /usr/local/etc/php-fpm.conf ]; then \
+		rm -f /usr/local/etc/php-fpm.d/*.conf /usr/local/etc/php-fpm.d/*.default \
+		&& sed -i 's|^include=/usr/local/etc/php-fpm.d/\*.conf$|include=/usr/local/etc/php-fpm.base.conf\n&|' /usr/local/etc/php-fpm.conf \
+		&& grep -qx 'include=/usr/local/etc/php-fpm.base.conf' /usr/local/etc/php-fpm.conf; \
+	fi
+
 # Pool podle stage: krome *.conf nacte php-fpm i php-fpm.d/default.${STAGE}.conf.template
 # (konvence projektu, sablona z config/docker). Projekt tak nemusi pri startu kopirovat
 # sablonu na *.conf a do mountu php-fpm.d nic nezapisuje. ${STAGE} rozvine php-fpm
@@ -90,9 +106,12 @@ RUN if [ -f /usr/local/etc/php/conf.d/docker-fpm.ini ]; then \
 # Ini z base image (zapnuti rozsireni, docker-fpm.ini) jsou v base.d, ne v conf.d - ten projekty
 # prekryvaji mountem a musely by pak rozsireni zapinat znovu ve svem ini. PHP prohledava base.d
 # pred conf.d, takze ini projektu ma posledni slovo. Projekt, ktery PHP_INI_SCAN_DIR nastavuje
-# sam (napr. ini podle stage), musi base.d ponechat na zacatku.
-ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/base.d:/usr/local/etc/php/conf.d
-RUN mkdir /usr/local/etc/php/base.d \
+# sam (napr. ini podle stage), musi base.d a runtime.d ponechat na zacatku.
+# runtime.d (zakaz funkci, disable-functions.ini) mezi nimi: plati vsude, conf.d projektu ho muze
+# prepsat a install-php-extensions ho pri buildu vynecha.
+ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/base.d:/usr/local/etc/php/runtime.d:/usr/local/etc/php/conf.d
+COPY disable-functions.ini /usr/local/etc/php/runtime.d/disable-functions.ini
+RUN mkdir -p /usr/local/etc/php/base.d \
 && mv /usr/local/etc/php/conf.d/*.ini /usr/local/etc/php/base.d/
 
 # Spolecne minimum rozsireni. Projekt si dalsi doinstaluje sam: `RUN install-php-extensions gd`.
@@ -170,6 +189,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends git unzip \
 # release vlastni deploy uzivatel, kontejner bezi pod UID projektu) - git by pak odmitl cist
 # metadata ("dubious ownership") a composer by nezjistil verzi root balicku.
 RUN git config --system --add safe.directory '*'
+
+# Composer spousti git a unzip (proc_open) - zakaz funkci runtime tu neplati
+RUN rm /usr/local/etc/php/runtime.d/disable-functions.ini
 
 # Jen ext-*, ne php: verzi PHP ma composer image stejnou jako runtime (stejny tag).
 # Dan: composer ignorovana rozsireni vynecha i z vendor/composer/platform_check.php.

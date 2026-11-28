@@ -6,8 +6,8 @@
 // v image) na KAZDY TCP port, na kterem FPM master posloucha (= kazdy pool, zjisti se z jeho
 // socketu v /proc/net/tcp; nezjisti-li se nic, 127.0.0.1:9000). Odpoved = nejaky worker
 // poolu prijal pozadavek a dokoncil ho. Selhani kterehokoli poolu = selhani kontroly.
-// pm.status_path ne - je v poolu projektu (php-fpm.d prekryva mount), image ho zapnout
-// neumi. Jakakoli FastCGI odpoved (i chyba skriptu kvuli open_basedir) znamena zivy pool. Neodpovi-li do PHP_FPM_HEALTHCHECK_TIMEOUT s, je to selhani - typicky vsechny
+// pm.status_path ne - pool projektu ho mit nemusi (do revize 13 ho image nezapinal).
+// Jakakoli FastCGI odpoved (i chyba skriptu kvuli open_basedir) znamena zivy pool. Neodpovi-li do PHP_FPM_HEALTHCHECK_TIMEOUT s, je to selhani - typicky vsechny
 // workery visi (pomale dotazy, zamky, sit) a dalsi pozadavky jen cekaji ve fronte.
 //
 // Watchdog: kdyz kontrola selhava v rade PHP_FPM_WATCHDOG_AFTER s (vychozi 120, kratke

@@ -100,9 +100,36 @@ FROM appsdevteam/php:8.5.13-8-20261109-${VARIANT}
 odstrani, `apt-get purge $PHPIZE_DEPS` uz projekt delat nemusi.
 
 Do image NEPATRI konfigurace v `/usr/local/etc/php/conf.d` a `/usr/local/etc/php-fpm.d` -
-projekty oba adresare prekryvaji mountem. Pool (vc. `pm.status_path = /status`) a ini si
-drzi projekt. Vychozi hodnoty image jsou proto v `/usr/local/etc/php/php.ini` (mimo
-mount) - projekt je muze ve svem `conf.d` prepsat.
+projekty oba adresare prekryvaji mountem. Vychozi hodnoty image jsou proto mimo ne
+(viz *Vychozi ini a pool [app]*) - projekt je muze ve svem `conf.d` / `php-fpm.d` prepsat.
+
+### Vychozi ini a pool [app] (od revize 14)
+
+Spolecne nastaveni vsech projektu je v image, projekt drzi jen to, cim se lisi:
+
+- `/usr/local/etc/php/php.ini` - produkcni hodnoty: `display_errors=0`, `log_errors=1`,
+  `expose_php=0`, `post_max_size` a `upload_max_filesize` 100M, `ignore_user_abort`, zlib komprese,
+  `opcache.revalidate_freq=0` (drive `conf.d/0-default.ini` sablony sandbox)
+- `/usr/local/etc/php/runtime.d/disable-functions.ini` - `disable_functions` (exec, proc_open ...)
+  pro web i CLI vsech stagi. `PHP_INI_SCAN_DIR` je `base.d:runtime.d:conf.d`, takze lokalne
+  a v CI ho projekt v `conf.d` vypne (`disable_functions=`, phpstan a codeception potrebuji
+  proc_open). `install-php-extensions` ho pri buildu vynechava, `-composer` ho nema.
+- `/usr/local/etc/php-fpm.base.conf` (jen `-fpm`, nacita se pred `php-fpm.d/*.conf`): `[global]`
+  (log na stderr) a pool `[app]` na portu 9000 - `pm.max_requests`, `request_terminate_timeout`,
+  `pm.status_path = /status`, `clear_env = no`, vystup workeru do `docker logs`. Velikost poolu
+  a revalidace opcache z prostredi kontejneru (`docker/.env` projektu), vychozi hodnoty v image:
+
+  | Promenna | Vychozi |
+  |---|---|
+  | `PHP_FPM_PM` | `dynamic` |
+  | `PHP_FPM_MAX_CHILDREN` | `5` |
+  | `PHP_FPM_START_SERVERS`, `PHP_FPM_MIN_SPARE_SERVERS`, `PHP_FPM_MAX_SPARE_SERVERS` | `2`, `1`, `3` |
+  | `PHP_OPCACHE_VALIDATE_TIMESTAMPS` | `0` (lokalne a v CI `1`) |
+
+Prechod na revizi 14: pool projektu jineho jmena nez `[app]` na portu 9000 s poolem image koliduje
+a FPM nenastartuje - projekt ho smaze (velikost poolu pres promenne vyse), nebo prejmenuje na `[app]`
+(slouci se, hodnoty projektu prepisou image). Projekt, ktery na serveru nekterou zakazanou funkci
+potrebuje, ji povoli ve svem `conf.d`. Pooly oficialniho image (`[www]`) v revizi 14 nejsou.
 
 ### Rozsireni projektu (od revize 7, dve stage od revize 12)
 
