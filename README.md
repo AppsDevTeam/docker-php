@@ -109,7 +109,8 @@ Spolecne nastaveni vsech projektu je v image, projekt drzi jen to, cim se lisi:
 
 - `/usr/local/etc/php/php.ini` - produkcni hodnoty: `display_errors=0`, `log_errors=1`,
   `expose_php=0`, `post_max_size` a `upload_max_filesize` 100M, `ignore_user_abort`, zlib komprese,
-  `opcache.revalidate_freq=0` (drive `conf.d/0-default.ini` sablony sandbox)
+  `opcache.validate_timestamps=0` (lokalne a v CI projekt v `conf.d` `=1`), `opcache.revalidate_freq=0`
+  (drive `conf.d/0-default.ini` a `opcache.validate_timestamps` v poolu sablony sandbox)
 - `/usr/local/etc/php/runtime.d/disable-functions.ini` - `disable_functions` (exec, proc_open ...)
   pro web i CLI vsech stagi. `PHP_INI_SCAN_DIR` je `base.d:runtime.d:conf.d`, takze lokalne
   a v CI ho projekt v `conf.d` vypne (`disable_functions=`, phpstan a codeception potrebuji
@@ -117,14 +118,13 @@ Spolecne nastaveni vsech projektu je v image, projekt drzi jen to, cim se lisi:
 - `/usr/local/etc/php-fpm.base.conf` (jen `-fpm`, nacita se pred `php-fpm.d/*.conf`): `[global]`
   (log na stderr) a pool `[app]` na portu 9000 - `pm.max_requests`, `request_terminate_timeout`,
   `pm.status_path = /status`, `clear_env = no`, vystup workeru do `docker logs`. Velikost poolu
-  a revalidace opcache z prostredi kontejneru (`docker/.env` projektu), vychozi hodnoty v image:
+  z prostredi kontejneru (`docker/.env` projektu), vychozi hodnoty v image:
 
   | Promenna | Vychozi |
   |---|---|
   | `PHP_FPM_PM` | `dynamic` |
   | `PHP_FPM_MAX_CHILDREN` | `5` |
   | `PHP_FPM_START_SERVERS`, `PHP_FPM_MIN_SPARE_SERVERS`, `PHP_FPM_MAX_SPARE_SERVERS` | `2`, `1`, `3` |
-  | `PHP_OPCACHE_VALIDATE_TIMESTAMPS` | `0` (lokalne a v CI `1`) |
 
 Prechod na revizi 14: pool projektu jineho jmena nez `[app]` na portu 9000 s poolem image koliduje
 a FPM nenastartuje - projekt ho smaze (velikost poolu pres promenne vyse), nebo prejmenuje na `[app]`

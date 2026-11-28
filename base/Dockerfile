@@ -64,14 +64,13 @@ RUN mkdir -p /usr/local/share/sbom \
 
 # Globalni nastaveni a pool [app] (php-fpm.base.conf, od revize 14) pred php-fpm.d projektu.
 # Pooly oficialniho image (www.conf, zz-docker.conf) pryc - [www] na portu 9000 by s [app]
-# kolidoval. Velikost poolu a revalidace opcache z prostredi kontejneru, tady vychozi hodnoty.
+# kolidoval. Velikost poolu z prostredi kontejneru, tady vychozi hodnoty.
 COPY php-fpm.base.conf /usr/local/etc/php-fpm.base.conf
 ENV PHP_FPM_PM=dynamic \
 	PHP_FPM_MAX_CHILDREN=5 \
 	PHP_FPM_START_SERVERS=2 \
 	PHP_FPM_MIN_SPARE_SERVERS=1 \
-	PHP_FPM_MAX_SPARE_SERVERS=3 \
-	PHP_OPCACHE_VALIDATE_TIMESTAMPS=0
+	PHP_FPM_MAX_SPARE_SERVERS=3
 RUN if [ -f /usr/local/etc/php-fpm.conf ]; then \
 		rm -f /usr/local/etc/php-fpm.d/*.conf /usr/local/etc/php-fpm.d/*.default \
 		&& sed -i 's|^include=/usr/local/etc/php-fpm.d/\*.conf$|include=/usr/local/etc/php-fpm.base.conf\n&|' /usr/local/etc/php-fpm.conf \
