@@ -8,8 +8,9 @@ Spolecny zaklad PHP pro webove projekty, platformy `linux/amd64` a `linux/arm64`
   `8.5.13-8-fpm`.
 - `-cli` - konzolove procesy bez webu, bez php-fpm. Tagy `8.4-cli` / `8.5-cli`, plovouci
   podle revize `8.4.28-8-cli` / `8.5.13-8-cli`. Obsahem stejne jako `-fpm`.
-- `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Konfiguraci
-  `/etc/supervisor` mountuje projekt, vychozi `CMD` je `supervisord -n`. Tagy
+- `-supervisor` - `-cli` + supervisor pro consumery (background queue apod.). Od revize 13
+  s `supervisord.conf` pro neroot ucet (pidfile a socket v `/tmp`); programy projekt mountuje
+  do `/etc/supervisor/conf.d` (`*.conf`), vychozi `CMD` je `supervisord -n`. Tagy
   `8.4-supervisor` / `8.5-supervisor`, plovouci podle revize `8.4.28-8-supervisor` /
   `8.5.13-8-supervisor`.
 - `-composer` - `-cli` + composer, git, unzip, jednorazovy kontejner pro `composer install`

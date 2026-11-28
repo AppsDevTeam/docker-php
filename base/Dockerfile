@@ -139,11 +139,12 @@ HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 CMD ["php
 
 # Varianta -supervisor: runtime (s VARIANT=cli) + supervisor pro consumery. Supervisor je python
 # program, takze si pritahne i python3 - proto neni v -cli a -fpm, ktere ho nepotrebuji.
-# Konfiguraci (/etc/supervisor) si mountuje projekt; CMD je jen vychozi, projekty ho casto
-# prepisuji (vyber konfigurace podle stage).
+# supervisord.conf pro neroot ucet (od revize 13), programy si projekt mountuje do
+# /etc/supervisor/conf.d.
 FROM runtime AS supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
 && rm -rf /var/lib/apt/lists/*
+COPY supervisord.conf /etc/supervisor/supervisord.conf
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
 
 
